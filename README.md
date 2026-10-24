@@ -73,7 +73,7 @@ Se você tem NVIDIA, um relato (funcionou ou não, com o `logs\bomberman.log`) a
 - O **seu** PKG do Bomberman ULTRA europeu (`NPEB00076`) e o **seu** RAP `EP0555-NPEB00076_00-BOMBERMANGAME001.rap`.
 - Para extrair e decriptar: o [RPCS3](https://rpcs3.net) instalado **ou** o código-fonte dele (as ferramentas daqui leem as chaves de `rpcs3/Crypto/key_vault.h`; nenhuma chave vem neste repositório).
 - Para compilar: Linux ou **WSL** (Ubuntu 22.04+), com `git curl cmake ninja-build python3 python3-pip`; `pip install cryptography pillow`.
-- Cerca de 2 GB livres; o build leva de 15 a 40 minutos, conforme a CPU (as duas versões do exe).
+- Cerca de 2 GB livres; o build completo (as duas versões do exe) levou 11 minutos numa máquina de 2 núcleos.
 
 ### Passos
 
