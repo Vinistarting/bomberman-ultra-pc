@@ -1,0 +1,43 @@
+# Toolchain de compilação cruzada Linux -> Windows x64 (clang + mingw-w64 + libc++).
+#
+# Prefixos (variáveis de ambiente ou -D na linha do cmake):
+#   BMU_LLVM_MINGW  toolchain llvm-mingw (padrão /opt/llvm-mingw)
+#   BMU_DEPS        dependências do backend Vulkan compiladas com ela
+#                   (<BMU_DEPS>/sdl2-win e <BMU_DEPS>/vk-win; padrão /opt)
+# tools/setup_deps.sh prepara os dois.
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+if(DEFINED ENV{BMU_LLVM_MINGW})
+    set(_bmu_mingw "$ENV{BMU_LLVM_MINGW}")
+else()
+    set(_bmu_mingw "/opt/llvm-mingw")
+endif()
+if(DEFINED ENV{BMU_DEPS})
+    set(_bmu_deps "$ENV{BMU_DEPS}")
+else()
+    set(_bmu_deps "/opt")
+endif()
+set(MINGW_PREFIX "${_bmu_mingw}" CACHE PATH "llvm-mingw")
+set(BMU_DEPS "${_bmu_deps}" CACHE PATH "SDL2/glslang para Windows")
+set(CMAKE_C_COMPILER   "${MINGW_PREFIX}/bin/x86_64-w64-mingw32-clang")
+set(CMAKE_CXX_COMPILER "${MINGW_PREFIX}/bin/x86_64-w64-mingw32-clang++")
+set(CMAKE_RC_COMPILER  "${MINGW_PREFIX}/bin/x86_64-w64-mingw32-windres")
+set(CMAKE_RC_FLAGS "--preprocessor-arg=--target=x86_64-w64-mingw32 -I${MINGW_PREFIX}/x86_64-w64-mingw32/include")
+# llvm-ar/llvm-ranlib: os da toolchain se ela trouxer (release do llvm-mingw), senão os do sistema.
+if(EXISTS "${MINGW_PREFIX}/bin/llvm-ar")
+    set(CMAKE_AR     "${MINGW_PREFIX}/bin/llvm-ar")
+    set(CMAKE_RANLIB "${MINGW_PREFIX}/bin/llvm-ranlib")
+else()
+    set(CMAKE_AR     /usr/bin/llvm-ar)
+    set(CMAKE_RANLIB /usr/bin/llvm-ranlib)
+endif()
+set(CMAKE_FIND_ROOT_PATH "${MINGW_PREFIX}/x86_64-w64-mingw32" "${BMU_DEPS}/sdl2-win" "${BMU_DEPS}/vk-win")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+# Executáveis autocontidos: libc++/libunwind estáticos (só UCRT do Windows 10+).
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
+# Windows 10+ (GetCurrentThreadStackLimits e afins usados pelo runtime)
+set(CMAKE_C_FLAGS   "-D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00" CACHE STRING "")
+set(CMAKE_CXX_FLAGS "-D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00" CACHE STRING "")

@@ -1,0 +1,716 @@
+IDS_ACCEPT_INVITE	Ver convites
+IDS_ACHIEVEMENTS	Conquistas
+IDS_ACHIEVEMENTS_TOOLTIP	Ver conquistas
+IDS_ARENA_AIR_SHIP	Zepelim
+IDS_ARENA_AIR_SHIP_DESC	Ciclones: há ciclones por toda parte. Saia do caminho ou perca o controle!
+IDS_ARENA_CLASSIC	Clássica
+IDS_ARENA_CLASSIC_DESC	A arena original do Bomberman! Escolha seu caminho para a glória!
+IDS_ARENA_CLASSIC_MODE_OPTIONS	Modo:
+IDS_ARENA_CUSTOM_1	Arena personalizada 1
+IDS_ARENA_CUSTOM_2	Arena personalizada 2
+IDS_ARENA_CUSTOM_3	Arena personalizada 3
+IDS_ARENA_CUSTOM_DESC	Todas as suas configurações de partida reunidas em uma só arena!
+IDS_ARENA_EXPANSION1_01	Aposta Alta
+IDS_ARENA_EXPANSION1_01_DESC	Diversão de arrepiar para toda a família.  Escolha qualquer efeito.
+IDS_ARENA_EXPANSION1_01_DESC_TOURNAMENT	Diversão de arrepiar para toda a família.
+IDS_ARENA_EXPANSION2_01	Tempos Medievais
+IDS_ARENA_EXPANSION2_01_DESC	Bombas e feitiçaria se enfrentam numa batalha épica +10.  Escolha seu efeito.
+IDS_ARENA_EXPANSION2_01_DESC_TOURNAMENT	Bombas e feitiçaria se enfrentam numa batalha épica +10.
+IDS_ARENA_EXPANSION3_01	Terra das Cáries
+IDS_ARENA_EXPANSION3_01_DESC	É açucarada, é docinha, vai fazer seus dentes doerem.  Escolha seu efeito.
+IDS_ARENA_EXPANSION3_01_DESC_TOURNAMENT	É açucarada, é docinha, vai fazer seus dentes doerem.
+IDS_ARENA_EXPANSION3_02	Fábrica de Robôs
+IDS_ARENA_EXPANSION3_02_DESC	Salve nossos mestres robôs.  Escolha seu efeito.
+IDS_ARENA_EXPANSION3_02_DESC_TOURNAMENT	Salve nossos mestres robôs.
+IDS_ARENA_FEATURE_OFF	Jogue nesta arena com o efeito da arena desligado.
+IDS_ARENA_FUN_LAND	Picadeiro
+IDS_ARENA_FUN_LAND_DESC	Setas de chute: faça fogos de artifício usando as setas de chute para lançar surpresas explosivas!
+IDS_ARENA_FUN_LAND_FEATURE_DESC	Setas de chute: faça fogos de artifício usando as setas de chute para lançar surpresas explosivas! Todos podem chutar bombas desde o início.
+IDS_ARENA_GHOST_TOWN	Cidade Fantasma
+IDS_ARENA_GHOST_TOWN_DESC	Alçapões: acha que está pegando fogo? Caia numa armadilha e descubra o quanto pode esquentar!
+IDS_ARENA_GIMMICKS_ON	Efeito da arena
+IDS_ARENA_GIMMICKS_OPTIONS	Efeitos:
+IDS_ARENA_ICE_FESTIVAL	Gelo Fino
+IDS_ARENA_ICE_FESTIVAL_DESC	Rachaduras no gelo: cuidado com as rachaduras, elas podem te derrubar!
+IDS_ARENA_LOST_WORLD	Mundo Perdido
+IDS_ARENA_LOST_WORLD_DESC	Areia movediça: cuidado com a areia movediça, ela vai te deixar afundado!
+IDS_ARENA_MINE_LAND	Explosão!
+IDS_ARENA_MINE_LAND_DESC	Lembre-se: segurança em primeiro lugar! Buracos de mina não param bombas, mas param você!
+IDS_ARENA_PIRATE_ISLAND	Ilha do Saque
+IDS_ARENA_PIRATE_ISLAND_DESC	Pegue o tesouro primeiro e depois mande os adversários pelos ares! Só diversão, sem escorbuto!
+IDS_ARENA_PIRATE_START_INSIDE	Dentro
+IDS_ARENA_PIRATE_START_OUTSIDE	Fora
+IDS_ARENA_PIRATE_START_POSITION	Início:
+IDS_ARENA_RACE	Velocidade Máxima
+IDS_ARENA_RACE_DESC	Círculos de velocidade: quanto maior o número, mais rápido você vai. Talvez dê para escapar!
+IDS_ARENA_RANDOM	Aleatória!
+IDS_ARENA_RANDOM_DESC	Compre o ingresso e curta o passeio. Qualquer fase, qualquer efeito, a qualquer hora.
+IDS_ARENA_SPACE_LAB	No Espaço
+IDS_ARENA_SPACE_LAB_DESC	Teletransporte: o futuro é agora! Faça uma viagem no teletransporte para um destino aleatório!
+IDS_ARENA_TOOLTIP	Escolha sua arena!
+IDS_ARENA_TOOLTIP_PIRATE_INSIDE	Comece por dentro e abra caminho a bombas até o tesouro!
+IDS_ARENA_TOOLTIP_PIRATE_OUTSIDE	Comece por fora e abra caminho a bombas até o tesouro!
+IDS_ARENA_UNLOCK_DEMO_MSG	Desbloqueie o jogo completo para jogar nesta arena!
+IDS_BACK	Voltar
+IDS_BACK_TO_GAME	Voltar ao jogo
+IDS_BATTLE	Batalha
+IDS_BATTLE_TOOLTIP	Jogue uma série de partidas numa única arena.
+IDS_BUTTON_ADD_ARENA	Adicionar arena
+IDS_BUTTON_KICK_PLAYER	Remover jogador
+IDS_BUTTON_POWER_DOWNS	Power-downs
+IDS_BUTTON_POWER_UPS	Power-ups
+IDS_BUTTON_PRESS_A_TO_START	Aperte ଁ para começar
+IDS_BUTTON_PREVIEW_SETTINGS	Ver detalhes
+IDS_BUTTON_REMOVE_ARENA	Remover arena
+IDS_CAMERA_COMMUNICATION_DISABLED_MESSAGE	A comunicação por vídeo foi desativada. Você pode ativar sua câmera em Configurações gerais, em Ajuda e opções.
+IDS_CAMERA_PREVIEW	Segure para visualizar
+IDS_CAMERA_RIGHT_STICK_TOOLTIP	Use o analógico direito para mover o retângulo de seleção
+IDS_CAMERA_SETTING	Câmera USB
+IDS_CAMERA_SETTING_TOOLTIP	Liga ou desliga a câmera USB!
+IDS_CAMERA_SETTING_VIDEO	Vídeo:
+IDS_CAMERA_SETTING_ZOOM	Zoom
+IDS_CAMERA_STATUS_DISABLED	A câmera USB está desativada
+IDS_CAMERA_STATUS_DISCONNECTED	A câmera USB está desconectada
+IDS_CAMERA_STATUS_ERROR	A câmera USB encontrou um erro.
+IDS_CAMERA_STATUS_ERROR_FULLSPEED	A câmera USB está ligada por um hub USB 1.1 e não funciona.
+IDS_CAMERA_STATUS_INITIALIZED	A câmera USB está sendo iniciada
+IDS_CANCEL	Cancelar
+IDS_CHANGE_CPU_TYPE	Mudar CPU
+IDS_CHAT_RESTRICTED	O controle parental não permite usar o chat de voz ou de vídeo.
+IDS_CONTROLS	Controles
+IDS_CONTROLS_TOOLTIP	Tudo sobre os controles do Bomberman ULTRA!
+IDS_CONTROL_CHANGE_CAM_ANGLE	Aperte R3 para mudar a visão/ângulo durante o jogo
+IDS_CONTROL_CONFIGURATION_DEFAULT	Controles padrão
+IDS_CONTROL_CONFIGURATION_TITLE	Configuração de controle %1
+IDS_CONTROL_DETONATE_BOMB	Detonar bomba remota
+IDS_CONTROL_DETONATE_BOMB_AND_REVENGE_SPEED	Detonar bomba remota / Velocidade do carrinho da vingança
+IDS_CONTROL_DIRECTIONAL_MOVEMENT	Movimento
+IDS_CONTROL_LINEBOMB_PUNCHBOMB	Bomba em linha/Soco na bomba
+IDS_CONTROL_PAUSE_GAME	Pausar o jogo
+IDS_CONTROL_REVENGE_SPEED_ON_HOLD	Velocidade do carrinho da vingança
+IDS_CONTROL_STOP_KICKED_BOMB	Parar bomba chutada
+IDS_CONTROL_THROW_PLACE_BOMBS	Colocar bomba/Arremessar bomba
+IDS_CONTROL_TOGGLE_GAMERTAG	Mostrar IDs online
+IDS_CONTROL_TOGGLE_HUD	Mostrar/ocultar HUD
+IDS_CPU_SELECTED_TOOLTIP	Jogador CPU %1
+IDS_CREATE_MATCH	Criar partida
+IDS_CREATE_MATCH_TOOLTIP	Hospede um jogo!
+IDS_CREDITS	Créditos
+IDS_CREDITS_TEXT_001	%c#ffffff:24Backbone Vancouver%c⏎⏎%c#ffffff:22Programação%c⏎Steve Snake⏎Corey -Ozzy- Asbreuk⏎Josh Breingan⏎George Wu⏎⏎%c#ffffff:22Programação adicional%c⏎Brook Jones⏎Dave Innes⏎Jason Collinge
+IDS_CREDITS_TEXT_002	%c#ffffff:24 %c⏎⏎%c#ffffff:22Arte%c⏎Aaron Parrott⏎Aaron Hempler⏎Matt Osness⏎Shane Holmes⏎Ryan Slemko⏎Nirmal Gill⏎⏎%c#ffffff:22Arte da interface%c⏎Carolyn Cudmore
+IDS_CREDITS_TEXT_003	%c#ffffff:24Backbone Vancouver%c⏎⏎%c#ffffff:22Arte adicional%c⏎Jonathan Innes⏎Tiffany Baxter⏎Matt Murray⏎Chris Sharpley⏎⏎%c#ffffff:22Designer-chefe%c⏎Glen Hamilton⏎⏎%c#ffffff:22Designer%c⏎Jarett Metcalfe
+IDS_CREDITS_TEXT_004	%c#ffffff:24 %c⏎⏎%c#ffffff:22Produtores%c⏎Heidi Newell⏎Glen Hamilton⏎⏎%c#ffffff:22Produtor assistente%c⏎Jarett Metcalfe⏎⏎%c#ffffff:22Produtor associado%c⏎Devon Detbrenner
+IDS_CREDITS_TEXT_005	%c#ffffff:24Backbone Vancouver%c⏎⏎%c#ffffff:22Diretor do estúdio%c⏎Dave Albert⏎⏎%c#ffffff:22Controle de qualidade%c⏎Tom McGarry⏎Mike Coules⏎Edwin Maynard
+IDS_CREDITS_TEXT_006	%c#ffffff:24 %c⏎⏎%c#ffffff:22Agradecimentos especiais%c⏎Joe Bonar⏎Mike Mika⏎Danney H.⏎Oceana H.⏎Savanah H.⏎Michael Jr H.⏎Bekkele H.⏎Sherai H.⏎Barrington Brown⏎⏎%c#ffffff:22Voz do Bomberman%c⏎Jessi Nicholson
+IDS_CREDITS_TEXT_007	%c#ffffff:24Hudson Entertainment Inc.%c⏎⏎%c#ffffff:22Presidente%c⏎Seiichi Ishigaki⏎⏎%c#ffffff:22VP de Desenvolvimento de Produto%c⏎Sabine Duvall
+IDS_CREDITS_TEXT_008	%c#ffffff:24 %c⏎⏎%c#ffffff:22Produtor%c⏎Peter Dassenko⏎⏎%c#ffffff:22Produtor associado%c⏎Andrew Plempel⏎⏎%c#ffffff:22Produtor internacional%c⏎Dai Kudo⏎⏎%c#ffffff:22Diretor criativo%c⏎Adrian Ludley
+IDS_CREDITS_TEXT_009	%c#ffffff:24Hudson Entertainment Inc.%c⏎⏎%c#ffffff:22Diretor de marketing%c⏎Mike Pepe⏎⏎%c#ffffff:22Gerente de marca associado%c⏎Amar Gavhane⏎⏎%c#ffffff:22Associado de marketing%c⏎Morgan Haro⏎⏎%c#ffffff:22Equipe de design%c⏎Joel Breton⏎Peter Dassenko⏎Andrew Plempel
+IDS_CREDITS_TEXT_010	%c#ffffff:24 %c⏎⏎%c#ffffff:22Artista gráfico%c⏎Jonathan Casco⏎⏎%c#ffffff:22Agradecimentos especiais%c⏎Lisa Durkin⏎Lucas Breton⏎Ben Herman⏎Alexa Breton⏎Meredith Orr⏎Sanjukta Maitra
+IDS_CREDITS_TEXT_011	%c#ffffff:22Serviços de tradução%c⏎Langer Translations⏎⏎%c#ffffff:24Hudson Entertainment Inc.%c⏎⏎%c#ffffff:22Controle de qualidade da localização%c⏎Daniel Yañez⏎Pietro Bonomi⏎Arnaud Bergerol
+IDS_CREDITS_TEXT_012	%c#ffffff:24HUDSON SOFT CO., LTD.%c⏎⏎%c#ffffff:22Produtor executivo%c⏎Michihiro Ishizuka⏎⏎%c#ffffff:22Supervisores técnicos%c⏎Kenji Kikuchi⏎Kazuhiko Nonaka
+IDS_CREDITS_TEXT_013	%c#ffffff:24HUDSON SOFT CO., LTD.%c⏎⏎%c#ffffff:22Suporte de publicação%c⏎Toshiyuki Sakai⏎Kohei Shitara⏎Tomotaka Motoyoshi⏎⏎%c#ffffff:22Gerentes de controle de qualidade%c⏎Masato Tobisawa⏎Tsuyoshi Nakagawa
+IDS_CREDITS_TEXT_014	%c#ffffff:24 %c⏎⏎%c#ffffff:22Agradecimentos especiais%c⏎John Greiner⏎Hidetoshi Endo⏎Yasutaka Kakiseko⏎Masato Tobisawa⏎Shota Takahashi⏎Tetsuya Komatsu⏎Takahito Nakagawa⏎Kentaro Murayama⏎Taku Arai⏎Takehito Hanyu
+IDS_CREDITS_TEXT_015	%c#ffffff:24HUDSON SOFT CO., LTD.%c⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎HIGE!
+IDS_CREDITS_TOOLTIP	Descubra quem fez este jogo incrível!
+IDS_CUSTOMIZE_BOMBERMAN	Personalizar Bomberman
+IDS_CUSTOMIZE_BOMBERMAN_TOOLTIP	Personalize seu Bomberman
+IDS_CUSTOMIZE_CHARACTER_SCREEN_TOOLTIP	Use o analógico direito para girar o personagem
+IDS_CUSTOM_MATCH	Partida personalizada
+IDS_CUSTOM_MATCH_ARENA	Arena:
+IDS_CUSTOM_MATCH_ARENA_TOOLTIP	Escolha uma arena!
+IDS_CUSTOM_MATCH_NUMBER_OF_MATCHES_TOOLTIP	Escolha o número de partidas do torneio.
+IDS_CUSTOM_MATCH_NUMBER_OF_PLAYER	Número de jogadores:
+IDS_CUSTOM_MATCH_NUMBER_OF_PLAYERS_TOOLTIP	Escolha uma faixa para o número de jogadores
+IDS_CUSTOM_MATCH_TIME_LIMIT	Tempo por partida:
+IDS_CUSTOM_MATCH_TIME_LIMIT_TOOLTIP	Escolha a duração de cada partida
+IDS_CUSTOM_MATCH_TOOLTIP	Personalize sua busca por jogos online!
+IDS_CUSTOM_MATCH_WINS	Número de vitórias:
+IDS_CUSTOM_MATCH_WINS_TOOLTIP	Escolha quantas vitórias levam ao título!
+IDS_CUSTOM_PARTS_001	Antena do Bomber Branco
+IDS_CUSTOM_PARTS_002	Cabeça do Bomber Branco
+IDS_CUSTOM_PARTS_003	Corpo do Bomber Branco
+IDS_CUSTOM_PARTS_004	Coque da Bailarina Bomberina
+IDS_CUSTOM_PARTS_005	Rosto da Bailarina Bomberina
+IDS_CUSTOM_PARTS_006	Tutu da Bailarina Bomberina
+IDS_CUSTOM_PARTS_007	Chapéu do Clint Bombwood
+IDS_CUSTOM_PARTS_008	Queixo do Clint Bombwood
+IDS_CUSTOM_PARTS_009	Perneiras do Clint Bombwood
+IDS_CUSTOM_PARTS_010	Elmo do Maximus Bombicus
+IDS_CUSTOM_PARTS_011	Cabeça do Maximus Bombicus
+IDS_CUSTOM_PARTS_012	Toga do Maximus Bombicus
+IDS_CUSTOM_PARTS_013	Capacete do Capitão Blast
+IDS_CUSTOM_PARTS_014	Rosto do Capitão Blast
+IDS_CUSTOM_PARTS_015	Farda do Capitão Blast
+IDS_CUSTOM_PARTS_016	Máscara Magnífica de Kane Milohai
+IDS_CUSTOM_PARTS_017	Rosto Misterioso de Kane Milohai
+IDS_CUSTOM_PARTS_018	Traje da Dança do Raio de Kane Milohai
+IDS_CUSTOM_PARTS_019	Bandana Pirata do Pete Perna-de-Pau
+IDS_CUSTOM_PARTS_020	Tapa-olho do Pete Perna-de-Pau
+IDS_CUSTOM_PARTS_021	Perna de pau e gancho do Pete Perna-de-Pau
+IDS_CUSTOM_PARTS_022	Cabelo Punk Rock
+IDS_CUSTOM_PARTS_023	Cabeça "O punk não morreu"!
+IDS_CUSTOM_PARTS_024	Visual Punk de Rua
+IDS_CUSTOM_PARTS_025	Capacete do Bomba, o Construtor
+IDS_CUSTOM_PARTS_026	Rosto do Bomba, o Construtor
+IDS_CUSTOM_PARTS_027	Ferramentas do Bomba, o Construtor
+IDS_CUSTOM_PARTS_028	Antena de Futebol do Long Bomb
+IDS_CUSTOM_PARTS_029	Máscara do Long Bomb
+IDS_CUSTOM_PARTS_030	Ombreiras do Long Bomb
+IDS_CUSTOM_PARTS_031	Cabelo da Garota Havaiana
+IDS_CUSTOM_PARTS_032	Lindo Rosto da Garota Havaiana
+IDS_CUSTOM_PARTS_033	Saia de Palha da Garota Havaiana
+IDS_CUSTOM_PARTS_034	Antena-Calculadora do Poindexter
+IDS_CUSTOM_PARTS_035	Óculos de Grau do Poindexter
+IDS_CUSTOM_PARTS_036	Kit Fashion do Poindexter
+IDS_CUSTOM_PARTS_037	Chapéu Azul da Bomba de Pano
+IDS_CUSTOM_PARTS_038	Cabeça da Bomba de Pano
+IDS_CUSTOM_PARTS_039	Vestido Bonito da Bomba de Pano
+IDS_CUSTOM_PARTS_040	Orelhas Peludas do BomberUrso
+IDS_CUSTOM_PARTS_041	Cabeça Peluda do BomberUrso
+IDS_CUSTOM_PARTS_042	Corpo Peludo do BomberUrso
+IDS_CUSTOM_PARTS_043	Antena da Bombelha
+IDS_CUSTOM_PARTS_044	Cabeça da Bombelha
+IDS_CUSTOM_PARTS_045	Corpo da Bombelha
+IDS_CUSTOM_PARTS_046	Chapéu de Torcida da Dyna Mite
+IDS_CUSTOM_PARTS_047	Franja da Dyna Mite
+IDS_CUSTOM_PARTS_048	Pompons da Dyna Mite
+IDS_CUSTOM_PARTS_049	Chapéu Hilário do Palhaço Bombo
+IDS_CUSTOM_PARTS_050	Nariz Bobo do Palhaço Bombo
+IDS_CUSTOM_PARTS_051	Roupas Ridículas do Palhaço Bombo
+IDS_CUSTOM_PARTS_052	Coroa da Princesa Bum
+IDS_CUSTOM_PARTS_053	Cabeça da Princesa Bum
+IDS_CUSTOM_PARTS_054	Corpo da Princesa Bum
+IDS_CUSTOM_PARTS_055	Chapéu de Pano
+IDS_CUSTOM_PARTS_056	Cabeça do Intelecto
+IDS_CUSTOM_PARTS_057	Manto da Fuga
+IDS_CUSTOM_PARTS_058	Antena de Comunicação do Neil Bombstrong
+IDS_CUSTOM_PARTS_059	Máscara Espacial do Neil Bombstrong
+IDS_CUSTOM_PARTS_060	Traje Lunar do Neil Bombstrong
+IDS_CUSTOM_PARTS_061	Auréola e Corte Celestial do Santo Fumo
+IDS_CUSTOM_PARTS_062	Cabeça Celestial do Santo Fumo
+IDS_CUSTOM_PARTS_063	Túnica Sagrada e Asas do Santo Fumo
+IDS_CUSTOM_PARTS_064	Cabelo do Dr. Ein
+IDS_CUSTOM_PARTS_065	Rosto do Dr. Ein
+IDS_CUSTOM_PARTS_066	Corpo do Dr. Ein
+IDS_CUSTOM_PARTS_067	Elmo de Valquíria da Brünnhilde
+IDS_CUSTOM_PARTS_068	Rosto Feroz da Brünnhilde
+IDS_CUSTOM_PARTS_069	Armadura de Valquíria da Brünnhilde
+IDS_CUSTOM_PARTS_070	Super Cabelo da Super Bomba
+IDS_CUSTOM_PARTS_071	Máscara de Disfarce da Super Bomba
+IDS_CUSTOM_PARTS_072	Super Traje da Super Bomba
+IDS_CUSTOM_PARTS_073	Cartola do Sr. Bomba
+IDS_CUSTOM_PARTS_074	Monóculo Esnobe do Sr. Bomba
+IDS_CUSTOM_PARTS_075	Terno de US$ 10.000 do Sr. Bomba
+IDS_CUSTOM_PARTS_076	Coroa de Sua Alteza Bombástica
+IDS_CUSTOM_PARTS_077	Barba de Sua Alteza Bombástica
+IDS_CUSTOM_PARTS_078	Manto de Sua Alteza Bombástica
+IDS_CUSTOM_PARTS_079	Chapéu do Bomberman de Alcatraz
+IDS_CUSTOM_PARTS_080	Cabeça do Bomberman de Alcatraz
+IDS_CUSTOM_PARTS_081	Macacão do Bomberman de Alcatraz
+IDS_CUSTOM_PARTS_082	Chifres do Belzebomba
+IDS_CUSTOM_PARTS_083	Bigode Maligno do Belzebomba
+IDS_CUSTOM_PARTS_084	Asas das Trevas do Belzebomba
+IDS_CUSTOM_PARTS_085	Black Power do Disco Bomba
+IDS_CUSTOM_PARTS_086	Cara Marrenta do Disco Bomba
+IDS_CUSTOM_PARTS_087	Terno Arrasador do Disco Bomba
+IDS_CUSTOM_PARTS_088	Chapéu de Caçar Tubarão
+IDS_CUSTOM_PARTS_089	Óculos da Terra dos Morcegos
+IDS_CUSTOM_PARTS_090	Traje Medo e Delírio
+IDS_CUSTOM_PARTS_091	Capacete de Treino do Rocky Bomboa
+IDS_CUSTOM_PARTS_092	Olhos de Tigre do Rocky Bomboa
+IDS_CUSTOM_PARTS_093	Cinturão de Campeão do Rocky Bomboa
+IDS_CUSTOM_PARTS_094	Cabeça Monstruosa do Bombassauro Rex
+IDS_CUSTOM_PARTS_095	Rosto Pré-histórico do Bombassauro Rex
+IDS_CUSTOM_PARTS_096	Corpo Escamoso do Bombassauro Rex
+IDS_CUSTOM_PARTS_097	Touca Antipoeira da Faxineira Francesa
+IDS_CUSTOM_PARTS_098	Cabelo Impecável da Faxineira Francesa
+IDS_CUSTOM_PARTS_099	Fantasia Branca Fofinha (Alugada) da Faxineira Francesa
+IDS_CUSTOM_PARTS_100	Orelhas Rosa Fofíssimas do Pequeno Bomby Fu Fu
+IDS_CUSTOM_PARTS_101	Bigodinhos Ownnn do Pequeno Bomby Fu Fu
+IDS_CUSTOM_PARTS_102	Rabinho Felpudo do Pequeno Bomby Fu Fu
+IDS_CUSTOM_PARTS_103	Chifres de Touro do El Bombito
+IDS_CUSTOM_PARTS_104	Olhar de Aço do El Bombito
+IDS_CUSTOM_PARTS_105	Traje de Toureiro do El Bombito
+IDS_CUSTOM_PARTS_106	Penteado Pré-histórico da Bomberella
+IDS_CUSTOM_PARTS_107	Rosto Selvagem da Bomberella
+IDS_CUSTOM_PARTS_108	Trapos Pré-históricos da Bomberella
+IDS_CUSTOM_PARTS_109	Capacete Destructoid
+IDS_CUSTOM_PARTS_110	Olhos Vermelhos Destructoid
+IDS_CUSTOM_PARTS_111	Traje Maneiro Destructoid
+IDS_CUSTOM_PARTS_112	Gorro de Guizos do Bobo da Bomba
+IDS_CUSTOM_PARTS_113	Rosto Cômico do Bobo da Bomba
+IDS_CUSTOM_PARTS_114	Fantasia Boba do Bobo da Bomba
+IDS_CUSTOM_PARTS_115	Crânio Enorme do Bomber Alienígena
+IDS_CUSTOM_PARTS_116	Olhos de Alien do Bomber Alienígena
+IDS_CUSTOM_PARTS_117	Exoesqueleto Interdimensional do Bomber Alienígena
+IDS_CUSTOM_PARTS_118	Abelha Amiga da Bomba Florida
+IDS_CUSTOM_PARTS_119	Rosto da Bomba Florida
+IDS_CUSTOM_PARTS_120	Corpo da Bomba Florida
+IDS_CUSTOM_PARTS_121	Marias-chiquinhas da Débora Desanimada
+IDS_CUSTOM_PARTS_122	Piercing da Individualidade da Débora Desanimada
+IDS_CUSTOM_PARTS_123	Visual Angustiado da Débora Desanimada
+IDS_CUSTOM_PARTS_124	Machado de Decapitar da Bomba da Perdição
+IDS_CUSTOM_PARTS_125	Máscara Anônima da Bomba da Perdição
+IDS_CUSTOM_PARTS_126	Couro Mortal da Bomba da Perdição
+IDS_CUSTOM_PARTS_127	Borboleta da Bomberbell
+IDS_CUSTOM_PARTS_128	Rosto Florido da Bomberbell
+IDS_CUSTOM_PARTS_129	Asas Graciosas da Bomberbell
+IDS_CUSTOM_PARTS_130	Capacete do Bomber X
+IDS_CUSTOM_PARTS_131	Viseira do Bomber X
+IDS_CUSTOM_PARTS_132	Botas de Corrida do Bomber X
+IDS_CUSTOM_PARTS_133	Quepe do Tenente Bomba
+IDS_CUSTOM_PARTS_134	Olhos de Águia do Tenente Bomba
+IDS_CUSTOM_PARTS_135	Cassetete da Justiça do Tenente Bomba
+IDS_CUSTOM_PARTS_136	Máscara de Luta Livre da Bomba de Los Muertos
+IDS_CUSTOM_PARTS_137	Rosto Horrendo da Bomba de Los Muertos
+IDS_CUSTOM_PARTS_138	Cinturão de Campeão da Bomba de Los Muertos
+IDS_CUSTOM_PARTS_139	Raio da Morte do Bomb2-D2
+IDS_CUSTOM_PARTS_140	Instrumentos Ópticos do Bomb2-D2
+IDS_CUSTOM_PARTS_141	Unidade Motora do Bomb2-D2
+IDS_CUSTOM_PARTS_142	Coroa Real da Bombopatra
+IDS_CUSTOM_PARTS_143	Rosto Sedutor da Bombopatra
+IDS_CUSTOM_PARTS_144	Vestido de Joias da Bombopatra
+IDS_CUSTOM_PARTS_145	Apito de Pato do Bomber Fudd
+IDS_CUSTOM_PARTS_146	Olhos de Caçador do Bomber Fudd
+IDS_CUSTOM_PARTS_147	Roupa Camuflada do Bomber Fudd
+IDS_CUSTOM_PARTS_148	Morcego da Garota Morta-Viva
+IDS_CUSTOM_PARTS_149	Rosto da Garota Morta-Viva
+IDS_CUSTOM_PARTS_150	Renda Transilvana da Garota Morta-Viva
+IDS_CUSTOM_PARTS_151	Shuriken Envenenada da Bomba Shinobi
+IDS_CUSTOM_PARTS_152	Máscara Furtiva da Bomba Shinobi
+IDS_CUSTOM_PARTS_153	Roupa Ninja da Bomba Shinobi
+IDS_CUSTOM_PARTS_154	Boné Irado do Bomb Diggity
+IDS_CUSTOM_PARTS_155	Cara de Durão do Bomb Diggity
+IDS_CUSTOM_PARTS_156	Correntes e Roupas do Bomb Diggity
+IDS_CUSTOM_PARTS_157	Cabelo Paz e Amor da Bomba Hippie
+IDS_CUSTOM_PARTS_158	Rosto Paz e Amor da Bomba Hippie
+IDS_CUSTOM_PARTS_159	Roupa de Patchouli da Bomba Hippie
+IDS_CUSTOM_PARTS_160	Hélice do Charles Bombbergh
+IDS_CUSTOM_PARTS_161	Óculos do Charles Bombbergh
+IDS_CUSTOM_PARTS_162	Traje de Aviador do Charles Bombbergh
+IDS_DEFAULT	Padrão
+IDS_DELETE	Apagar
+IDS_DISABLE	Desativar
+IDS_DISABLED	Desativado
+IDS_DONE	Feito
+IDS_DOWNLOAD_CONTENT	Baixar conteúdo
+IDS_DOWNLOAD_CONTENT_TOOLTIP	Baixar outros conteúdos
+IDS_EASY_CPU	Fácil
+IDS_EDIT_POWERUP	Editar power-up
+IDS_ENABLE	Ativar
+IDS_ENABLED	Ativado
+IDS_EXIT_GAME	Sair do jogo
+IDS_FILTER	Filtro:
+IDS_FINAL_STANDINGS_1ST	1º lugar
+IDS_FINAL_STANDINGS_2ND	2º lugar
+IDS_FINAL_STANDINGS_3RD	3º lugar
+IDS_FINAL_STANDINGS_4TH	4º lugar
+IDS_FINAL_STANDINGS_5TH	5º lugar
+IDS_FINAL_STANDINGS_6TH	6º lugar
+IDS_FINAL_STANDINGS_7TH	7º lugar
+IDS_FINAL_STANDINGS_8TH	8º lugar
+IDS_FINISH_EDIT_POWERUP	Edição concluída
+IDS_FIXED_START_POSITION	Fixas
+IDS_FIXED_START_POSITION_TOOLTIP	As posições iniciais dos jogadores são fixas.
+IDS_FRIENDS	Amigos
+IDS_GAMERTAG	ID online
+IDS_GAME_LENGTH_1_TOOLTIP	Quem vencer 1 partida primeiro é o campeão!
+IDS_GAME_LENGTH_TOOLTIP	Quem vencer %1 partidas primeiro é o campeão!
+IDS_GAME_MODE_NORMAL_TOOLTIP	O último jogador de pé vence!
+IDS_GAME_OBJECTIVE_COLOR_BLOCKS	Bomba de Tinta
+IDS_GAME_OBJECTIVE_COLOR_BLOCKS_DESC	Vence quem tiver mais quadrados pintados! Exploda os quadrados para conquistá-los.
+IDS_GAME_OBJECTIVE_MOST_KILLS	Mais abates
+IDS_GAME_OBJECTIVE_MOST_KILLS_DESC	Vence o jogador com mais abates!
+IDS_GAME_OBJECTIVE_NORMAL	Normal
+IDS_GAME_OBJECTIVE_NORMAL_DESC	O mundo lá fora é perigoso para o Bomberman. O último de pé vence!
+IDS_GAME_OBJECTIVE_POWER_ZONE	Fogo Amigo
+IDS_GAME_OBJECTIVE_POWER_ZONE_DESC	Sem blocos, sem onde se esconder e quase nenhuma chance de sobreviver!
+IDS_GAME_OBJECTIVE_SPEED_ZONE	Bombardeio Veloz
+IDS_GAME_OBJECTIVE_SPEED_ZONE_DESC	Viva rápido e bombardeie mais rápido ainda no modo mais veloz da história do Bomberman!
+IDS_GAME_OBJECTIVE_SPEED_ZONE_SHORT_ITALIAN	Bombardeio Veloz
+IDS_GAME_OBJECTIVE_ZOMBIE	Zumbi
+IDS_GAME_OBJECTIVE_ZOMBIE_DESC	Neste jogo do Bomberman você é imortal.  Pinte mais quadrados para vencer!
+IDS_GENERAL_SETTING_UPSELL_TOOLTIP	Desbloqueie a versão completa do jogo para personalizar todas as opções!
+IDS_GIMMICKS_CYCLONE	Ciclone
+IDS_GIMMICKS_ICE_CRACKS	Rachaduras no gelo
+IDS_GIMMICKS_KICK_ARROWS	Setas de chute
+IDS_GIMMICKS_QUICK_SAND	Areia movediça
+IDS_GIMMICKS_SPEED_CIRCLES	Círculos de velocidade
+IDS_GIMMICKS_TRANSPORTER	Teletransporte
+IDS_GIMMICKS_TRAP_DOORS	Alçapões
+IDS_HARD_BLOCK	Bloco duro
+IDS_HARD_CPU	Difícil
+IDS_HELP	Como jogar
+IDS_HELP_PAGE_NUMBER	Página %1 / %2
+IDS_HELP_POWERUP_LIST_TOOLTIP	Use o analógico direito para percorrer os power-ups.
+IDS_HELP_TEXT_001	%c#ffffff:24Introdução%c⏎⏎Bomberman ULTRA, o lendário jogo de bombardeio insano, está de volta! E não tem nada melhor do que você e até 7 outros jogadores lutando pela supremacia no campo de batalha! Solte bombas sem dó, chute surpresas explosivas pela arena e mande seus inimigos pelos ares!
+IDS_HELP_TEXT_002	%c#ffffff:24O básico%c⏎⏎Abra caminho! Exploda os blocos macios para chegar mais perto dos inimigos. Pelo caminho você vai encontrar power-ups e recompensas desbloqueáveis!
+IDS_HELP_TEXT_003	%c#ffffff:24O básico (continuação)…%c⏎⏎Corra enquanto pode! Corra e se esconda atrás dos blocos duros: quase sempre eles protegem você das explosões.⏎⏎Fique carregado! Pegue power-ups para ganhar novas habilidades e aumentar o poder de fogo e a velocidade.⏎⏎Quem guarda sempre tem! Você pode acumular até 8 bombas e combinar power-ups para criar ataques superpoderosos!
+IDS_HELP_TEXT_004	%c#ffffff:24O básico (continuação)…%c⏎⏎Não se ache demais! Evite os Fogo-Menos, Velocidade-Menos e Bomba-Menos: eles reduzem seu poder de fogo e sua velocidade.⏎⏎Cuidado com as caveiras! Elas podem te deixar doente e causar todo tipo de confusão!⏎⏎Tique-taque! Cuidado com o que você solta! Fora os blocos duros, as bombas destroem tudo, inclusive VOCÊ!
+IDS_HELP_TEXT_005	%c#FFFFFF:24Caveiras%c⏎⏎As caveiras passam doenças aleatórias que atrapalham seu personagem por um tempo.⏎⏎As seis doenças das caveiras são:⏎⏎%c#FFFFFF:20Superlento:%c você anda mais devagar que melado da vovó num dia frio!⏎⏎%c#FFFFFF:20Bombarreia:%c você solta bombas sem controle e sem juízo!
+IDS_HELP_TEXT_006	%c#ffffff:24Caveiras (continuação)%c⏎⏎%c#ffffff:20Invisibilidade:%c você fica invisível para todos, inclusive para você.⏎⏎%c#ffffff:20Impaciência:%c suas bombas explodem logo depois de soltas.⏎⏎%c#ffffff:20Pavio Lento:%c a detonação das suas bombas atrasa.⏎⏎%c#ffffff:20Superveloz:%c você se mexe freneticamente num ritmo inacreditável!
+IDS_HELP_TEXT_007	%c#ffffff:24Modos de jogo%c⏎⏎%c#ffffff:20Normal:%c O mundo lá fora é perigoso para o Bomberman. O último de pé vence!⏎⏎%c#ffffff:20Mais abates:%c Vence quem fizer mais abates.⏎⏎%c#ffffff:20Zumbi:%c Neste jogo do Bomberman você é imortal. Pinte mais quadrados para vencer! Se morrer, você volta, mas perde todos os quadrados pintados.
+IDS_HELP_TEXT_008	%c#ffffff:24Modos de jogo (continuação)…%c⏎⏎%c#ffffff:20Bomba de Tinta: %cExploda os quadrados para conquistá-los; vence quem tiver mais quadrados pintados!⏎⏎%c#ffffff:20Bombardeio Veloz: %cViva rápido e bombardeie mais rápido ainda no modo mais veloz da história do Bomberman! Todos têm velocidade máxima.⏎⏎%c#ffffff:20Fogo Amigo: %cSem blocos, sem onde se esconder e quase nenhuma chance de sobreviver! Todos têm poder de fogo máximo.
+IDS_HELP_TEXT_009	%c#ffffff:24Personalize seu Bomberman!%c⏎⏎Personalize seu Bomberman com peças de fantasia de 54 personagens novos e fantásticos! Desbloqueie cada um coletando %c#ffffff:20"Bolas de Fantasia"%c ao jogar qualquer partida local de dois minutos ou mais.⏎⏎%c#ffffff:20Obs.*%c Depois de pegar uma Bola de Fantasia, o ícone ଅ aparece no menu principal até você entrar na tela Personalizar Bomberman para provar sua roupa nova!
+IDS_HELP_TEXT_010	%c#ffffff:24Câmera USB%c⏎⏎O vencedor aparece ao vivo em vídeo na tela de classificação final para todos verem. Diga "xis"!
+IDS_HELP_TEXT_011	%c#ffffff:24Dicas gerais%c⏎⏎%c#ffffff:20Modo Vingança:%c com o Modo Vingança ativado, você pode bombardear os outros jogadores de um carrinho da vingança depois de ser eliminado! Segure o botão ଁ por um instante antes de soltar para arremessar mais longe.⏎⏎%c#ffffff:20Modo Supervingança:%c vingue-se depois de morrer bombardeando outro jogador do carrinho da vingança: você toma o lugar dele e volta ao jogo! Segure o botão ଁ por um instante para arremessar mais longe!
+IDS_HELP_TEXT_012	%c#ffffff:24Dicas gerais (continuação)%c⏎⏎%c#ffffff:20Arremesso do carrinho da vingança:%c aperte o botão ଁ para arremessar a bomba a 3 quadrados.  Aperte e segure o botão ଁ para arremessá-la a 5 quadrados.⏎⏎%c#ffffff:20Morte súbita:%c quando ativada, blocos mortais caem do céu nos últimos 40 segundos da partida, acabando com tudo e todos no caminho!
+IDS_HELP_TEXT_013	%c#ffffff:20Câmera durante o jogo:%c aperte R3 para alternar entre dois ângulos de câmera e níveis de zoom.
+IDS_HELP_TEXT_014	%c#ffffff:20Abrigos antibomba:%c quando ativados, você pode se esconder nessas cabanas mortais para confundir os inimigos, ou deixar bombas bem escondidas e dar um susto daqueles em quem entrar!
+IDS_HELP_TEXT_016_E	%c#ffffff:20Suporte ao cliente/técnico da Hudson%c⏎⏎Suporte por e-mail: support@hudsonent.com⏎Não fornecemos dicas.⏎Perguntas sobre o produto só serão respondidas em inglês.
+IDS_HELP_TITLE_01	Introdução
+IDS_HELP_TITLE_02	O básico
+IDS_HELP_TITLE_03	Avançado
+IDS_HELP_TITLE_04	Power-ups
+IDS_HELP_TITLE_05	Caveiras
+IDS_HELP_TITLE_06	Modos de jogo
+IDS_HELP_TITLE_07	Recompensas desbloqueáveis
+IDS_HELP_TITLE_08	Câmera USB
+IDS_HELP_TITLE_09	Dicas gerais
+IDS_HELP_TITLE_10	Informações adicionais
+IDS_HELP_TITLE_11	Contato
+IDS_HELP_TOOLTIP	Tudo o que você precisa saber para jogar Bomberman ULTRA!
+IDS_HUMAN_PLAYER_SELECTED_TOOLTIP	Jogador humano selecionado
+IDS_INVITATION_BODY	Jogue Bomberman ULTRA comigo!
+IDS_INVITATION_TITLE	Bomberman ULTRA
+IDS_JOIN	Entrar
+IDS_JOIN_LEAVE	Entrar / Sair
+IDS_JOIN_TOOLTIP	Entre no jogo!
+IDS_KILL_LIMIT_TOOLTIP	Quem fizer %1 abates primeiro vence!
+IDS_LABEL_GAMETYPE	Tipo de jogo:
+IDS_LABEL_GAME_OBJECTIVE	Modo de jogo:
+IDS_LABEL_KILL_LIMIT	Limite de abates:
+IDS_LABEL_MATCH_LENGTH	Tempo limite:
+IDS_LABEL_PIPES	Abrigos antibomba:
+IDS_LABEL_REVENGE_MODE	Vingança:
+IDS_LABEL_SCAVENGER_MODE	Saqueador:
+IDS_LABEL_START_POSITION	Posições:
+IDS_LABEL_SUDDEN_DEATH	Morte súbita:
+IDS_LABEL_TEAM	Equipe:
+IDS_LEADERBOARD	Placares
+IDS_LEADERBOARD_ARCADE	Local
+IDS_LEADERBOARD_ARCADE_WEEKLY	Arcade semanal
+IDS_LEADERBOARD_CHANGE_FILTER	Mudar filtro
+IDS_LEADERBOARD_FRIENDS_NOT_YET_RANKED	Seus amigos ainda não estão neste placar
+IDS_LEADERBOARD_LOADING	Carregando placar...
+IDS_LEADERBOARD_NO_RECORDS	Ninguém está neste placar ainda
+IDS_LEADERBOARD_NUMBER_OF_PLAYER_RANKED	%1 jogadores classificados
+IDS_LEADERBOARD_PLAYER_NOT_YET_RANKED	Você ainda não está neste placar
+IDS_LEADERBOARD_RANKED_BOMBING_RUN	Bombardeio Veloz online
+IDS_LEADERBOARD_RANKED_BOMBING_RUN_WEEKLY	Bombardeio Veloz ranqueado semanal
+IDS_LEADERBOARD_RANKED_CYCLONE	Ciclone online
+IDS_LEADERBOARD_RANKED_CYCLONE_WEEKLY	Ciclone ranqueado semanal
+IDS_LEADERBOARD_RANKED_FRIENDLY_FIRE	Fogo Amigo online
+IDS_LEADERBOARD_RANKED_FRIENDLY_FIRE_WEEKLY	Fogo Amigo ranqueado semanal
+IDS_LEADERBOARD_RANKED_ICE_CRACKS	Rachaduras no gelo online
+IDS_LEADERBOARD_RANKED_ICE_CRACKS_WEEKLY	Rachaduras no gelo ranqueado semanal
+IDS_LEADERBOARD_RANKED_KICK_ARROWS	Setas de chute online
+IDS_LEADERBOARD_RANKED_KICK_ARROWS_WEEKLY	Setas de chute ranqueado semanal
+IDS_LEADERBOARD_RANKED_PAINT_BOMB	Bomba de Tinta online
+IDS_LEADERBOARD_RANKED_PAINT_BOMB_WEEKLY	Bomba de Tinta ranqueado semanal
+IDS_LEADERBOARD_RANKED_QUICK_SAND	Areia movediça online
+IDS_LEADERBOARD_RANKED_QUICK_SAND_WEEKLY	Areia movediça ranqueado semanal
+IDS_LEADERBOARD_RANKED_SPEED_CIRCLES	Círculos de velocidade online
+IDS_LEADERBOARD_RANKED_SPEED_CIRCLES_WEEKLY	Círculos de velocidade ranqueado semanal
+IDS_LEADERBOARD_RANKED_TRANSPORTER	Teletransporte online
+IDS_LEADERBOARD_RANKED_TRANSPORTER_WEEKLY	Teletransporte ranqueado semanal
+IDS_LEADERBOARD_RANKED_TRAP_DOORS	Alçapões online
+IDS_LEADERBOARD_RANKED_TRAP_DOORS_WEEKLY	Alçapões ranqueado semanal
+IDS_LEADERBOARD_RANKED_ZOMBIE	Zumbi online
+IDS_LEADERBOARD_RANKED_ZOMBIE_WEEKLY	Zumbi ranqueado semanal
+IDS_LEADERBOARD_STATS_GAME_PLAYED	Partidas
+IDS_LEADERBOARD_TOOLTIP	Compare suas pontuações com o resto do mundo
+IDS_LEADERBOARD_XBOX_LIVE_PLAYER	Batalha online
+IDS_LEADERBOARD_XBOX_LIVE_PLAYER_TOURNAMENT	Torneio online
+IDS_LEADERBOARD_XBOX_LIVE_PLAYER_TOURNAMENT_WEEKLY	Torneio de jogadores PlayStation®Network semanal
+IDS_LEADERBOARD_XBOX_LIVE_PLAYER_WEEKLY	Jogadores PlayStation®Network semanal
+IDS_LEADERBOARD_XBOX_LIVE_RANKED	Ranqueado PlayStation®Network
+IDS_LEADERBOARD_XBOX_LIVE_RANKED_TOURNAMENT	Torneio online
+IDS_LEADERBOARD_XBOX_LIVE_RANKED_TOURNAMENT_WEEKLY	Torneio ranqueado PlayStation®Network semanal
+IDS_LEADERBOARD_XBOX_LIVE_RANKED_WEEKLY	Ranqueado PlayStation®Network semanal
+IDS_LEAVE_MATCH	Sair da partida
+IDS_LIVE_HOSTING_MATCH	Hospedando partida
+IDS_LIVE_JOINING_MATCH	Entrando na partida
+IDS_LIVE_SEARCHING_CUSTOM_MATCH	Procurando partidas
+IDS_LIVE_SEARCHING_MATCH	Procurando partida
+IDS_LOADING	Carregando
+IDS_LOBBY_PRESS_A_TO_START_GAME	Aperte o botão ଁ quando estiver pronto para começar...
+IDS_LOBBY_WAITING_PLAYERS_GET_READY	Esperando os outros jogadores ficarem prontos...
+IDS_LOBBY_WAITING_PLAYERS_TO_JOIN	Esperando os outros jogadores entrarem...
+IDS_LOCAL_PLAY	Jogo local
+IDS_LOCAL_PLAYER_JOIN_CONTINUE_TOOLTIP	Aperte ଁ para continuar (quando todos tiverem entrado)
+IDS_LOCAL_PLAY_TOOLTIP	Jogue uma partida local
+IDS_MATCH_LENGTH	%1 minuto(s)
+IDS_MATCH_LENGTH_TOOLTIP	A duração de cada partida em minutos.
+IDS_MATCH_PREVIEW_MATCH_NUMBER	Partida %1/%2
+IDS_MATCH_PREVIEW_NUMBER_OF_MATCH	Número de partidas:
+IDS_MATCH_PREVIEW_QUIT_TOURNAMENT	Abandonar torneio
+IDS_MATCH_RESULT_BLOCKS	Quadrados
+IDS_MATCH_RESULT_BOMB_DROPPED	Bombas soltas
+IDS_MATCH_RESULT_CONSECUTIVE_WINS	Vitórias seguidas
+IDS_MATCH_RESULT_DRAWS	Empates
+IDS_MATCH_RESULT_GAMES_PLAYED	Jogos disputados
+IDS_MATCH_RESULT_KILLS	Abates
+IDS_MATCH_RESULT_KILLS_DEATH_RATIO	Abates/Mortes
+IDS_MATCH_RESULT_LONGEST_WIN_STREAK	Maior sequência
+IDS_MATCH_RESULT_LOSSES	Derrotas
+IDS_MATCH_RESULT_TITLE_KILLS	Total
+IDS_MATCH_RESULT_WINNING_PERCENTAGE	% de vitórias
+IDS_MATCH_RESULT_WINS	Vitórias
+IDS_MATCH_RESULT_WIN_SINGULAR	Vitória
+IDS_MAXIMUM	Máx.
+IDS_MEDIUM_CPU	Normal
+IDS_MINIMUM	Mín.
+IDS_MULTIPLAYER	Multijogador
+IDS_MULTIPLAYER_TOOLTIP	Jogue uma partida multijogador
+IDS_MUSIC_VOLUME	Volume da música
+IDS_MUSIC_VOLUME_TOOLTIP	Ajuste o volume da música
+IDS_MY_SCORE	Minha pontuação
+IDS_NA	N/D
+IDS_NEXT	Avançar
+IDS_NO	Não
+IDS_NOT_ALL_PLAYERS_JOINED	Nem todos os jogadores puderam entrar nesta partida.  Pelo menos um jogador não tem permissão para jogar multijogador na PlayStation®Network.
+IDS_NUMBER_OF_PLAYER_TOOLTIP	Escolha o número máximo de jogadores.
+IDS_OBJECTIVE	Objetivo
+IDS_OFF	Desligado
+IDS_OK	Ok
+IDS_ON	Ligado
+IDS_OPEN_SLOT	Livre
+IDS_OPTION_AND_HELP	Ajuda e opções
+IDS_OPTION_AND_HELP_TOOLTIP	Obtenha ajuda, veja os créditos e mude as configurações do jogo
+IDS_OVERALL	Geral
+IDS_PING	Ping
+IDS_PIPES_OFF_TOOLTIP	Os abrigos antibomba estão desligados.
+IDS_PIPES_ON_TOOLTIP	Há abrigos antibomba espalhados pela arena!
+IDS_PLAYERS	Jogadores
+IDS_PLAYER_BATTLE	Batalha online
+IDS_PLAYER_CHANGE_SLOT	Use o analógico direito para mudar o personagem de vaga
+IDS_PLAYER_NUMBER	Jogador %1
+IDS_PLAYER_SCORE	Pontuação do jogador
+IDS_PLAYER_TOURNAMENT	Torneio online
+IDS_POPUP_ACHIEVEMENT_READ_FAILED_DESC	Não foi possível ler as conquistas do perfil. Tentar de novo?
+IDS_POPUP_ACHIEVEMENT_READ_FAILED_TITLE	Falha ao ler conquistas
+IDS_POPUP_ACHIEVEMENT_WRITE_FAILED_DESC	Não foi possível gravar as conquistas no perfil. Tentar de novo?
+IDS_POPUP_ACHIEVEMENT_WRITE_FAILED_TITLE	Falha ao gravar conquistas
+IDS_POPUP_CAMERA_COMMUNICATION_WARNING	Você vai enviar e receber vídeo de outros jogadores nas partidas online. Tem certeza de que quer ativar o chat de vídeo agora?
+IDS_POPUP_CANNOT_SAVE_LOCKED_CHARACTER	O Bomberman não pode salvar seu personagem porque uma das peças de fantasia escolhidas ainda não foi desbloqueada
+IDS_POPUP_CONNECTION_TIMEOUT_DESC	A conexão expirou.
+IDS_POPUP_CONTROLLER_DISCONNECT_DESC	Reconecte o controle SIXAXIS™ %1.
+IDS_POPUP_CONTROLLER_DISCONNECT_TITLE	Controle sem fio desconectado
+IDS_POPUP_DELETE_SETTING_CONFIRMATION_DESC	Tem certeza de que quer apagar as configurações existentes?
+IDS_POPUP_DELETE_SETTING_TITLE	Apagar configurações existentes
+IDS_POPUP_ENDING_GAME_DESC	Aguarde enquanto o jogo é encerrado.
+IDS_POPUP_ENDING_GAME_TITLE	Encerrando o jogo
+IDS_POPUP_ERROR_OCCURED_TITLE	Erro
+IDS_POPUP_EXIT_MATCH_CONFIRMATION_DESC	Tem certeza de que quer sair?
+IDS_POPUP_EXPANSIONS_REQUIRED_DESC	Esta partida exige os pacotes de expansão %1.
+IDS_POPUP_EXPANSION_REQUIRED_DESC	Esta partida exige o pacote de expansão nº %1.
+IDS_POPUP_EXPANSION_REQUIRED_TITLE	Pacotes de expansão necessários
+IDS_POPUP_FAIL_SEARCH_FAILED_TITLE	A busca falhou
+IDS_POPUP_FAIL_TO_DELETE_GAME_DESC	Não foi possível apagar o jogo.
+IDS_POPUP_FAIL_TO_HOST_GAME_DESC	Não foi possível hospedar o jogo.
+IDS_POPUP_FAIL_TO_REGISTER_ARBITRATION_DESC	Não foi possível registrar a arbitragem.
+IDS_POPUP_FAIL_TO_START_GAME_DESC	Não foi possível iniciar o jogo.
+IDS_POPUP_FAIL_TO_UPDATE_GAME_STATS_DESC	Não foi possível atualizar as estatísticas do fim do jogo.
+IDS_POPUP_FOUND_GAMES_DESC	%1 jogo(s) encontrado(s)
+IDS_POPUP_GAME_ALREADY_STARTED_DESC	O jogo já começou.
+IDS_POPUP_GAME_IS_FULL_DESC	O jogo está cheio.
+IDS_POPUP_GAME_NOT_FOUND_DESC	O jogo não foi encontrado.
+IDS_POPUP_HOST_DISCONNECT_TITLE	Anfitrião desconectado
+IDS_POPUP_HOST_LEFT_DESC	O anfitrião saiu da partida.
+IDS_POPUP_HOST_LEFT_RETURN_TO_LIVEMENU_DESC	O anfitrião saiu da partida. Voltando ao menu Multijogador.
+IDS_POPUP_HOST_LEFT_RETURN_TO_MAINMENU_DESC	O anfitrião saiu da partida. Voltando ao menu principal.
+IDS_POPUP_JOIN_FAILED_TITLE	Falha ao entrar
+IDS_POPUP_KICK_PLAYER_WARNING	Todos os jogadores no mesmo console remoto serão removidos. Tem certeza de que quer remover este jogador?
+IDS_POPUP_LEAVE_MATCH_CONFIRMATION_DESC	Tem certeza de que quer sair da partida?
+IDS_POPUP_LIVE_REQUIRED	Para usar este recurso, é preciso estar conectado a um perfil da PlayStation®Network e à PSN.
+IDS_POPUP_LOADING_EXPANSION_PACK	Pacote de expansão encontrado. Carregando...
+IDS_POPUP_LOADING_EXPANSION_PACK_COMPLETE	O pacote de expansão foi carregado.
+IDS_POPUP_LOADING_EXPANSION_PACK_FAILED	Não foi possível carregar o pacote de expansão.
+IDS_POPUP_LOST_GAME_PROGRESS_WARNING_DESC	Todo o progresso do jogo será perdido.
+IDS_POPUP_NETWORK_DISCONNECT_DESC	Sua conexão com a PlayStation®Network foi perdida.
+IDS_POPUP_NETWORK_DISCONNECT_TITLE	Conexão perdida
+IDS_POPUP_NOT_ENOUGH_SPACE	Não há espaço suficiente no HD. Para jogar, são necessários pelo menos mais %1 MB. Saia do jogo e libere o espaço necessário.
+IDS_POPUP_NO_ACCESS_FOR_GUESTS	Perfis de convidado não podem usar este recurso.  Entre com outro perfil.
+IDS_POPUP_OVERWRITE_SETTING_CONFIRMATION_DESC	Tem certeza de que quer substituir as configurações existentes?
+IDS_POPUP_OVERWRITE_SETTING_TITLE	Substituir configurações existentes
+IDS_POPUP_PLAYERS_LEFT_RETURN_TO_LIVEMENU_DESC	Os jogadores saíram da partida. Voltando ao menu Multijogador.
+IDS_POPUP_PLAYER_LEFT_MATCH_DESC	Um ou mais jogadores saíram da partida.
+IDS_POPUP_PLAYER_SIGNED_OUT	Usuário desconectado
+IDS_POPUP_PLAYER_SIGNED_OUT_DESC	Seu estado de conexão mudou; voltando ao menu principal.
+IDS_POPUP_PROFILE_SAVE_FAILED_DESC	O Bomberman não consegue salvar suas configurações agora.
+IDS_POPUP_PROFILE_SAVE_FAILED_TITLE	Não foi possível salvar no perfil
+IDS_POPUP_QUIT_CONFIRMATION_DESC	Tem certeza de que quer sair?
+IDS_POPUP_RESET_MATCH_CONFIRMATION_DESC	Tem certeza de que quer reiniciar?
+IDS_POPUP_SAVE_CHANGES_DESC	Se continuar, essas alterações serão perdidas.
+IDS_POPUP_SAVE_CHANGES_TITLE	Você não salvou essas alterações no seu perfil!
+IDS_POPUP_SAVE_CHARACTER_DESC	O Bomberman está salvando seu personagem personalizado. Não remova o dispositivo de armazenamento nem desligue o sistema PLAYSTATION®3.
+IDS_POPUP_SAVE_CHARACTER_TITLE	Salvando...
+IDS_POPUP_SAVE_SETTINGS_DESC	O Bomberman está salvando suas configurações. Não remova o dispositivo de armazenamento nem desligue o console PLAYSTATION®3.
+IDS_POPUP_SAVE_SETTINGS_TITLE	O Bomberman está salvando suas configurações. Não remova o dispositivo de armazenamento nem desligue o console PLAYSTATION®3.
+IDS_POPUP_SAVING_SETTINGS	Salvando...
+IDS_POPUP_STORAGE_NOT_AVAILABLE	O dispositivo de armazenamento em uso não está disponível.
+IDS_POPUP_UNABLE_TO_JOIN_DESC	Não foi possível entrar no jogo.
+IDS_POPUP_XBOX_LIVE_NOT_CONNECTED	Atenção! As pontuações não serão enviadas aos placares porque você não está conectado à PlayStation®Network.
+IDS_POWERUP_BOMBDOWN	Bomba-Menos
+IDS_POWERUP_BOMBDOWN_DESC	Diminui em 1 o número de bombas que você pode colocar.
+IDS_POWERUP_BOMBKICK	Chuta-Bomba
+IDS_POWERUP_BOMBKICK_DESC	Chute qualquer bomba correndo na direção dela. Pare-a apertando o botão ଇ.
+IDS_POWERUP_BOMBPUNCH	Soco na Bomba
+IDS_POWERUP_BOMBPUNCH_DESC	Dê um soco em qualquer bomba no seu caminho com o botão ଃ.
+IDS_POWERUP_BOMBUP	Bomba-Mais
+IDS_POWERUP_BOMBUP_DESC	Aumenta em 1 o número de bombas que você pode colocar.
+IDS_POWERUP_BURNABLE	Destrutíveis
+IDS_POWERUP_DANGEROUSBOMB	Bomba Perigosa
+IDS_POWERUP_DANGEROUSBOMB_DESC	A explosão se espalha em quadrado. Melhore-a pegando Fogo-Mais.
+IDS_POWERUP_DEMO_TOOLTIP	Desbloqueie o jogo completo para personalizar todos os power-ups
+IDS_POWERUP_FIREDOWN	Fogo-Menos
+IDS_POWERUP_FIREDOWN_DESC	Diminui o poder de fogo das bombas em 1 nível. Nunca chega a 0.
+IDS_POWERUP_FIREPROOF	Blindados
+IDS_POWERUP_FIREUP	Fogo-Mais
+IDS_POWERUP_FIREUP_DESC	Aumenta o alcance da explosão em 1 nível.
+IDS_POWERUP_FULLFIRE	Fogo Total
+IDS_POWERUP_FULLFIRE_DESC	Deixa o poder de fogo no nível máximo!
+IDS_POWERUP_LANDMINE	Bomba Mina
+IDS_POWERUP_LANDMINE_DESC	A primeira bomba vira uma mina terrestre escondida no chão.
+IDS_POWERUP_LINEBOMB	Bomba em Linha
+IDS_POWERUP_LINEBOMB_DESC	Solte todas as bombas em fila de uma vez com o botão ଃ.
+IDS_POWERUP_PENETRATORBOMB	Bomba Perfurante
+IDS_POWERUP_PENETRATORBOMB_DESC	As chamas das suas bombas atravessam os blocos macios.
+IDS_POWERUP_POWERBOMB	Superbomba
+IDS_POWERUP_POWERBOMB_DESC	A primeira bomba que você colocar tem poder de fogo máximo.
+IDS_POWERUP_POWERGLOVE	Luva de Força
+IDS_POWERUP_POWERGLOVE_DESC	Coloque uma bomba, pegue-a e arremesse com o botão ଁ.
+IDS_POWERUP_REMOTEBOMB	Bomba Remota
+IDS_POWERUP_REMOTEBOMB_DESC	Use o botão ଂ para detonar as bombas que você colocou.
+IDS_POWERUP_SET	Conjunto:
+IDS_POWERUP_SETTING	Power-ups:
+IDS_POWERUP_SETTINGS	Power-ups:
+IDS_POWERUP_SETTINGS_BURNABLE_TOOLTIP	Os power-ups podem ser destruídos!
+IDS_POWERUP_SETTINGS_FIREPROOF_TOOLTIP	Os power-ups são blindados: o fogo não os destrói!
+IDS_POWERUP_SET_ALL_TOOLTIP	Use todos os power-ups e power-downs!
+IDS_POWERUP_SET_CUSTOM_TOOLTIP	Suas configurações personalizadas de power-ups.
+IDS_POWERUP_SET_TOOLTIP	Configurações de power-ups: %1.
+IDS_POWERUP_SKULL	Caveira
+IDS_POWERUP_SKULL_DESC	Deixa você doente.
+IDS_POWERUP_SPEEDDOWN	Velocidade-Menos
+IDS_POWERUP_SPEEDDOWN_DESC	Diminui sua velocidade em 1 nível. Nunca chega a 0.
+IDS_POWERUP_SPEEDUP	Velocidade-Mais
+IDS_POWERUP_SPEEDUP_DESC	Aumenta sua velocidade em 1 nível.
+IDS_POWER_DOWNS	Power-downs:
+IDS_POWER_DOWNS_CUSTOM_TOOLTIP	Suas configurações personalizadas de power-downs.
+IDS_POWER_DOWNS_OFF_TOOLTIP	Os power-downs estão desligados.
+IDS_POWER_DOWNS_ON_TOOLTIP	Os power-downs estão ligados.
+IDS_PRIVATE_MATCH	Partida privada
+IDS_PRIVATE_MATCH_TOOLTIP	Convide seus amigos para uma partida privada!
+IDS_QUICK_FINISH_DESC	Só restam jogadores da CPU nesta partida. Quer ir direto para a tela de resultados?
+IDS_QUICK_FINISH_TEXT	Fim rápido
+IDS_QUICK_MATCH	Partida rápida
+IDS_QUICK_MATCH_TOOLTIP	Entre num jogo online!
+IDS_QUIT	Sair
+IDS_RANDOM_START_POSITION_TOOLTIP	As posições iniciais dos jogadores são aleatórias.
+IDS_RANK	Posição
+IDS_RANKED_BATTLE	Batalha ranqueada
+IDS_RANKED_TOURNAMENT	Torneio ranqueado
+IDS_READY	Pronto
+IDS_REMATCH	Revanche
+IDS_RESET_MATCH	Reiniciar partida
+IDS_RESULT_PRESS_TO_CONTINUE	Aperte ଁ para continuar
+IDS_RESULT_WAIT_FOR_HOST_TO_CONTINUE	Esperando o anfitrião continuar...
+IDS_RESULT_WAIT_FOR_HOST_TO_START	Esperando o anfitrião continuar...
+IDS_RESUME_GAME	Continuar o jogo
+IDS_RETURN_TO_ARCADE	Sair do jogo
+IDS_RETURN_TO_ARCADE_TOOLTIP	Voltar ao Arcade da PlayStation®Network
+IDS_REVENGE_CART	Carrinho da vingança
+IDS_REVENGE_MODE_OFF_TOOLTIP	A vingança está desligada.
+IDS_REVENGE_MODE_ON_TOOLTIP	Bombardeie os jogadores da beirada para se vingar depois de morrer!
+IDS_REVENGE_MODE_SUPER	Super
+IDS_RUMBLE_SETTING	Vibração
+IDS_RUMBLE_TOOLTIP	Liga ou desliga a vibração do controle.
+IDS_SAVE	Salvar
+IDS_SAVED_CUSTOM_SETTINGS	Configuração personalizada %1
+IDS_SAVE_CUSTOM_SETTINGS_TOOLTIP	Suas configurações personalizadas salvas ficam depois da opção aleatória, na tela de escolha de arena.
+IDS_SAVE_NAME_TITLE	Bomberman ULTRA
+IDS_SAVE_SETTINGS	Salvar configurações
+IDS_SCAVENGER_MODE_OFF_TOOLTIP	Pegar os power-ups dos outros jogadores está desligado.
+IDS_SCAVENGER_MODE_ON_TOOLTIP	Pegar os power-ups dos outros jogadores está ligado.
+IDS_SELECT	Selecionar
+IDS_SEND_INVITES	Convidar amigos
+IDS_SERVER_FAIL_TO_FIND_GAMES	A busca por jogos falhou.
+IDS_SERVER_FOUND_GAMES	%1 jogos encontrados
+IDS_SERVER_SEARCHING_GAMES	Procurando jogos...
+IDS_SETTINGS	Configurações
+IDS_SETTINGS_TOOLTIP	Ajuste o áudio e a vibração!
+IDS_SETTING_ADVANCED	Avançado
+IDS_SETTING_ALL	Todos
+IDS_SETTING_BEGINNER	Iniciante
+IDS_SETTING_CUSTOM	Personalizado
+IDS_SETTING_INTERMEDIATE	Intermediário
+IDS_SINGLE_BATTLE	Batalha única
+IDS_SINGLE_PLAYER	Um jogador
+IDS_SINGLE_PLAYER_TOOLTIP	Jogue uma partida local
+IDS_SKULLS	Caveiras:
+IDS_SKULLS_BURNABLE_TOOLTIP	As caveiras podem ser destruídas!
+IDS_SKULLS_FIREPROOF_TOOLTIP	As caveiras são blindadas: o fogo não as destrói!
+IDS_SKULLS_OFF_TOOLTIP	As caveiras estão desligadas.
+IDS_SKULL_INFECTION	Contágio das caveiras:
+IDS_SKULL_INFECTION_HAND_OFF	Passar adiante
+IDS_SKULL_INFECTION_HAND_OFF_TOOLTIP	É uma epidemia! Espalhe as doenças para todos os inimigos!
+IDS_SKULL_INFECTION_SPREAD	Espalhar
+IDS_SKULL_INFECTION_SPREAD_TOOLTIP	Tá com você! Encoste nos inimigos para passar a doença!
+IDS_SOFT_BLOCK	Bloco macio
+IDS_SOUND_VOLUME	Volume dos efeitos
+IDS_SOUND_VOLUME_TOOLTIP	Ajuste o volume dos efeitos sonoros
+IDS_START_GAME	Começar o jogo
+IDS_SUBMIT_REVIEW	Enviar avaliação
+IDS_SUDDEN_DEATH_OFF_TOOLTIP	A morte súbita está desligada… os blocos de pressão só caem na borda da arena.
+IDS_SUDDEN_DEATH_ON_TOOLTIP	Sem onde se esconder! Blocos de pressão mortais chovem do céu destruindo tudo no caminho.
+IDS_SUDDEN_DEATH_RANDOM_TOOLTIP	Blocos de pressão chovem do céu, mas ninguém sabe de onde.
+IDS_SUPER_REVENGE_MODE_TOOLTIP	Vingue-se depois de morrer e volte ao jogo!
+IDS_TEAM_FOUR	Equipe 4
+IDS_TEAM_ONE	Equipe 1
+IDS_TEAM_THREE	Equipe 3
+IDS_TEAM_TWO	Equipe 2
+IDS_TIME_LIMIT	Tempo
+IDS_TITLE_CAMERA_SETTING_MENU	Câmera USB
+IDS_TITLE_CONTROL_MENU	Controles no jogo
+IDS_TITLE_CREATE_MATCH	Criar / entrar numa partida
+IDS_TITLE_CUSTOM_MATCH_MENU	Configurar partida personalizada
+IDS_TITLE_FINAL_STANDINGS	Classificação final
+IDS_TITLE_GAME_RESULTS	Resultados
+IDS_TITLE_GENERAL_SETTINGS	Configurações gerais
+IDS_TITLE_MATCH_PREVIEW	Resumo da partida
+IDS_TITLE_MATCH_TYPE	Tipo de partida
+IDS_TITLE_MULTIPLAYER_GAME	Multijogador
+IDS_TITLE_PAUSE_MENU	Pausa
+IDS_TITLE_POWERUP_SETTINGS	Configurações de power-ups
+IDS_TITLE_SAVE_CUSTOM_SETTINGS	Salvar configurações personalizadas
+IDS_TITLE_SELECT_ARENA	Escolha a arena
+IDS_TITLE_SELECT_LOCAL_PLAYER	Escolha os jogadores locais
+IDS_TITLE_SELECT_PLAYERS	Escolha os jogadores
+IDS_TITLE_TEAM_SELECT	Escolha as equipes
+IDS_TITLE_TOURNAMENT_SCHEDULE	Agenda do torneio
+IDS_TOGGLE_CHECKBOX	Marcar power-ups
+IDS_TOURNAMENT	Torneio
+IDS_TOURNAMENT_MATCHES	Partidas
+IDS_TOURNAMENT_SCHEDULE_TOOLTIP	Escolha até 10 arenas para jogar.
+IDS_TOURNAMENT_TOOLTIP	Jogue uma série de partidas em arenas diferentes.
+IDS_UNLOCK_FULL_GAME	Desbloquear o jogo completo
+IDS_UNLOCK_FULL_GAME_TOOLTIP	Desbloquear o jogo completo
+IDS_UNLOCK_TO_PLAY_UP_TO_8_PLAYERS	Desbloqueie o jogo completo para jogar com até 8 jogadores (até 7 humanos)!
+IDS_UPSELL_DESC_00	Desbloqueie o jogo completo hoje e tenha a experiência Bomberman completa!
+IDS_UPSELL_DESC_00_1	-14 arenas exóticas!⏎-Regras e configurações totalmente personalizáveis!⏎-Partidas online com 8 jogadores!⏎-Desbloqueie fantasias e crie seu próprio Bomberman!
+IDS_UPSELL_DESC_01	O jogo de festa definitivo já está disponível!⏎⏎Até 8 jogadores podem se enfrentar na PlayStation®Network!⏎⏎Jogue com até 7 pessoas num só sistema PLAYSTATION®3!⏎⏎Participe dos torneios para provar quem é o melhor do mundo!
+IDS_UPSELL_DESC_02	Personalize seu próprio Bomberman! Mais de 10.000 combinações!
+IDS_UPSELL_DESC_02_1	13 power-ups explosivos!⏎⏎14 arenas exóticas!⏎⏎O maior e mais personalizável Bomberman de todos os tempos!
+IDS_UPSELL_DESC_03	Desbloqueie o jogo completo hoje e tenha a experiência Bomberman completa!
+IDS_UPSELL_DESC_03_1	Ainda precisa de um motivo?⏎⏎Que tal este: modo Zumbi Paintball! Use suas bombas para pintar a arena e conquistar o máximo de território! Atualize agora e curta o Bomberman mais frenético que existe.
+IDS_UPSELL_NO_PRIVILEGE_DESC	Uma restrição do seu ID online não permite usar este recurso.
+IDS_UPSELL_NO_PRIVILEGE_TITLE	Você não tem permissão
+IDS_UPSELL_REPLAY_TRIAL	Jogar a demo de novo
+IDS_VIEW_GAMER_CARD	Ver perfil do jogador
+IDS_XBOX_LIVE_PLAYER	Batalha online
+IDS_XBOX_LIVE_PLAYER_TOOLTIP	Jogue uma partida online
+IDS_XBOX_LIVE_RANKED	Partida ranqueada
+IDS_XBOX_LIVE_RANKED_TOOLTIP	Jogue uma partida ranqueada na PlayStation®Network
+IDS_YES	Sim

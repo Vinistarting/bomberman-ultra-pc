@@ -1,0 +1,3535 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bdd2f85..ef6bd98 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -50,8 +50,8 @@ list(FILTER HLE_SOURCES EXCLUDE REGEX "/tests/")
+ option(PS3RECOMP_RSX_VULKAN "Build the Vulkan RSX backend (Linux)" OFF)
+ list(FILTER HLE_SOURCES EXCLUDE REGEX "rsx_vulkan_backend\\.c$")
+ if(PS3RECOMP_RSX_VULKAN)
+-    if(WIN32 OR APPLE)
+-        message(FATAL_ERROR "PS3RECOMP_RSX_VULKAN is Linux-only for now")
++    if(APPLE)
++        message(FATAL_ERROR "PS3RECOMP_RSX_VULKAN is not supported on Apple")
+     endif()
+     find_path(PS3RECOMP_VULKAN_INCLUDE_DIR vulkan/vulkan.h)
+     if(NOT PS3RECOMP_VULKAN_INCLUDE_DIR)
+@@ -286,6 +286,23 @@ if(UNIX)
+     endif()
+ endif()
+ 
++# Windows + Vulkan: o backend abre a janela/superfície pelo SDL2 e traduz os
++# programas do guest com o glslang (ambos estáticos, achados via CMAKE_PREFIX_PATH).
++if(WIN32 AND PS3RECOMP_RSX_VULKAN)
++    find_package(SDL2 REQUIRED CONFIG)
++    if(TARGET SDL2::SDL2-static)
++        target_link_libraries(ps3recomp_runtime PRIVATE SDL2::SDL2-static)
++    else()
++        target_link_libraries(ps3recomp_runtime PRIVATE SDL2::SDL2)
++    endif()
++    find_package(glslang CONFIG QUIET)
++    target_include_directories(ps3recomp_runtime PRIVATE "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
++    target_compile_definitions(ps3recomp_runtime PUBLIC PS3RECOMP_RSX_VULKAN)
++    # Controles pelo SDL2 (DualShock 4, DualSense, Xbox e genéricos) em vez de
++    # só XInput; o teclado continua no port 0.
++    target_compile_definitions(ps3recomp_runtime PRIVATE PS3RECOMP_PAD_USE_SDL2)
++endif()
++
+ # Guest shaders on Vulkan: HLSL -> SPIR-V. glslang only -- Vulkan consumes
+ # SPIR-V, so spirv-cross is not needed. Without glslang
+ # libs/video/rsx_shader_spirv.cpp is a stub and the Vulkan backend stays on
+diff --git a/libs/input/cellPad.c b/libs/input/cellPad.c
+index 7fa8cab..a0b75c3 100644
+--- a/libs/input/cellPad.c
++++ b/libs/input/cellPad.c
+@@ -59,6 +59,12 @@ static double pad_clock(unsigned long long t0_ms)
+ 
+ #if PAD_BACKEND_SDL2
+   #include <SDL2/SDL.h>
++  #if defined(_WIN32)
++    #ifndef WIN32_LEAN_AND_MEAN
++      #define WIN32_LEAN_AND_MEAN
++    #endif
++    #include <windows.h>
++  #endif
+ #endif
+ 
+ /* ---------------------------------------------------------------------------
+@@ -125,6 +131,7 @@ typedef struct {
+ static PadRumble s_rumble[PAD_MAX_HOST_PORTS];
+ 
+ static unsigned long long pad_now_ms(void);
++#define PAD_POLL_INTERVAL_MS 4
+ 
+ /* The two host motor levels (0-65535) for a PS3 actuator request. */
+ static void pad_rumble_levels(u8 small_on, u8 large, u16* lo, u16* hi)
+@@ -137,8 +144,8 @@ static void pad_rumble_levels(u8 small_on, u8 large, u16* lo, u16* hi)
+  * XInput backend
+  * -----------------------------------------------------------------------*/
+ 
++#if PAD_BACKEND_XINPUT || defined(_WIN32)
+ #if PAD_BACKEND_XINPUT
+-
+ /* Deadzone for analog sticks (same as XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE) */
+ #define PAD_STICK_DEADZONE  7849
+ #define PAD_TRIGGER_THRESHOLD 30
+@@ -159,6 +166,7 @@ static u8 pad_xinput_stick_to_u8(short raw, short deadzone)
+     if (val > 255) val = 255;
+     return (u8)val;
+ }
++#endif /* PAD_BACKEND_XINPUT (stick helper) */
+ 
+ /* Keyboard fallback for port 0.
+  *
+@@ -233,7 +241,9 @@ static void pad_poll_keyboard(void)
+           fflush(stdout); } }
+ }
+ #endif
++#endif /* PAD_BACKEND_XINPUT || _WIN32 */
+ 
++#if PAD_BACKEND_XINPUT
+ static void pad_poll_xinput(void)
+ {
+     for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
+@@ -315,9 +325,32 @@ static void pad_shutdown_backend(void)
+ 
+ #if PAD_BACKEND_SDL2
+ 
++/* SDL2 backend, driven from the WINDOW thread.
++ *
++ * SDL's joystick layer (HIDAPI for DualShock 4 / DualSense, XInput/WGI/
++ * RawInput for Xbox) expects to be initialised and pumped on the thread that
++ * runs SDL_PumpEvents. The game polls cellPad from its own threads, so the
++ * window thread calls cellPad_host_pump() every pass (src/main.cpp), which
++ * handles hotplug, reads every controller into a snapshot and sends rumble;
++ * pad_poll_sdl2 on the game side only copies the snapshot. A build that never
++ * calls the pump falls back to polling SDL from the game thread as before.
++ *
++ * Ports are handed out in connection order: the first controller is player 1
++ * and so on; a controller that disconnects frees its port, and the next one
++ * plugged in takes the lowest free port. */
++
++static SDL_JoystickID s_sdl_ids[PAD_MAX_HOST_PORTS];
++static PadHostState   s_sdl_snap[PAD_MAX_HOST_PORTS];
++static SDL_SpinLock   s_sdl_lock;
++static volatile int   s_sdl_pumped = 0;         /* the window thread is pumping */
++static volatile int   s_rumble_dirty[PAD_MAX_HOST_PORTS];
++
+ static u8 pad_sdl_axis_to_u8(int raw)
+ {
+-    /* SDL axis: -32768..32767 -> 0..255 with center at 128 */
++    /* SDL axis: -32768..32767 -> 0..255 with center at 128, with a radial
++     * deadzone so a resting stick reads exactly 128 (the guest treats 127 as
++     * SELECT|START aliasing on some titles -- see the XInput note). */
++    if (raw > -7849 && raw < 7849) return 128;
+     int val = ((raw + 32768) * 255) / 65535;
+     if (val < 0) val = 0;
+     if (val > 255) val = 255;
+@@ -333,6 +366,55 @@ static u8 pad_sdl_trigger_to_u8(int raw)
+     return (u8)val;
+ }
+ 
++static void pad_sdl_read(SDL_GameController* gc, PadHostState* hs)
++{
++    memset(hs, 0, sizeof *hs);
++    hs->connected = 1;
++    u16 btns = 0;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK))          btns |= CELL_PAD_CTRL_SELECT;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_LEFTSTICK))     btns |= CELL_PAD_CTRL_L3;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_RIGHTSTICK))    btns |= CELL_PAD_CTRL_R3;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START))         btns |= CELL_PAD_CTRL_START;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_UP))       btns |= CELL_PAD_CTRL_UP;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    btns |= CELL_PAD_CTRL_RIGHT;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_DOWN))     btns |= CELL_PAD_CTRL_DOWN;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_LEFT))     btns |= CELL_PAD_CTRL_LEFT;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  btns |= CELL_PAD_CTRL_L1;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) btns |= CELL_PAD_CTRL_R1;
++    /* SDL names the face buttons by position (A = bottom), which is the
++     * PlayStation layout: bottom ✕, right ○, left □, top △. */
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_Y))             btns |= CELL_PAD_CTRL_TRIANGLE;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_B))             btns |= CELL_PAD_CTRL_CIRCLE;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_A))             btns |= CELL_PAD_CTRL_CROSS;
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_X))             btns |= CELL_PAD_CTRL_SQUARE;
++    /* PS button / Xbox guide / touchpad click: START, so a pad with no
++     * reachable Options still pauses. */
++    if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_TOUCHPAD))      btns |= CELL_PAD_CTRL_SELECT;
++
++    const int lt = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
++    const int rt = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
++    if (lt > 3000) btns |= CELL_PAD_CTRL_L2;
++    if (rt > 3000) btns |= CELL_PAD_CTRL_R2;
++    hs->buttons = btns;
++
++    hs->analog_lx = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX));
++    hs->analog_ly = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY));
++    hs->analog_rx = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX));
++    hs->analog_ry = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY));
++    hs->trigger_l2 = pad_sdl_trigger_to_u8(lt);
++    hs->trigger_r2 = pad_sdl_trigger_to_u8(rt);
++    hs->press_up       = (btns & CELL_PAD_CTRL_UP)       ? 255 : 0;
++    hs->press_down     = (btns & CELL_PAD_CTRL_DOWN)     ? 255 : 0;
++    hs->press_left     = (btns & CELL_PAD_CTRL_LEFT)     ? 255 : 0;
++    hs->press_right    = (btns & CELL_PAD_CTRL_RIGHT)    ? 255 : 0;
++    hs->press_triangle = (btns & CELL_PAD_CTRL_TRIANGLE) ? 255 : 0;
++    hs->press_circle   = (btns & CELL_PAD_CTRL_CIRCLE)   ? 255 : 0;
++    hs->press_cross    = (btns & CELL_PAD_CTRL_CROSS)    ? 255 : 0;
++    hs->press_square   = (btns & CELL_PAD_CTRL_SQUARE)   ? 255 : 0;
++    hs->press_l1       = (btns & CELL_PAD_CTRL_L1)       ? 255 : 0;
++    hs->press_r1       = (btns & CELL_PAD_CTRL_R1)       ? 255 : 0;
++}
++
+ /* Send port i's rumble state to its controller, with a fresh duration. */
+ static void pad_sdl_rumble_send(int i)
+ {
+@@ -344,112 +426,163 @@ static void pad_sdl_rumble_send(int i)
+     r->sent_ms = on ? pad_now_ms() : 0;
+ }
+ 
+-static void pad_poll_sdl2(void)
++static void pad_sdl_init_once(void)
+ {
+-    SDL_GameControllerUpdate();
++    if (s_sdl_inited) return;
++    s_sdl_inited = 1;
++    /* DualShock 4 / DualSense: full HIDAPI reports so rumble also works over
++     * Bluetooth; the light bar shows the player colour. */
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED, "1");
++    if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0 &&
++        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
++        printf("[cellPad] SDL gamecontroller init failed: %s\n", SDL_GetError());
++        return;
++    }
++    memset(s_sdl_controllers, 0, sizeof(s_sdl_controllers));
++    for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) s_sdl_ids[i] = -1;
++    printf("[cellPad] SDL %d.%d.%d: controles por SDL (DualShock 4, DualSense, Xbox)\n",
++           SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
++}
+ 
++/* Hotplug + read every port into `out`. */
++static void pad_sdl_scan(PadHostState out[PAD_MAX_HOST_PORTS])
++{
++    SDL_GameControllerUpdate();
++    /* Drop controllers that went away. */
+     for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
+-        if (!s_sdl_controllers[i]) {
+-            /* Try to open newly connected controllers */
+-            if (SDL_IsGameController(i)) {
+-                s_sdl_controllers[i] = SDL_GameControllerOpen(i);
+-            }
+-        }
+-
+         SDL_GameController* gc = s_sdl_controllers[i];
+-        if (!gc || !SDL_GameControllerGetAttached(gc)) {
+-            s_host_state[i].connected = 0;
+-            if (gc) {
+-                SDL_GameControllerClose(gc);
+-                s_sdl_controllers[i] = NULL;
+-            }
++        if (gc && !SDL_GameControllerGetAttached(gc)) {
++            printf("[cellPad] controle do jogador %d desconectado\n", i + 1);
++            SDL_GameControllerClose(gc);
++            s_sdl_controllers[i] = NULL;
++            s_sdl_ids[i] = -1;
+             memset(&s_rumble[i], 0, sizeof s_rumble[i]);
+-            continue;
+         }
++    }
++    /* Open new ones into the lowest free port. */
++    const int n = SDL_NumJoysticks();
++    for (int j = 0; j < n; j++) {
++        if (!SDL_IsGameController(j)) continue;
++        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(j);
++        int held = 0, freep = -1;
++        for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
++            if (s_sdl_ids[i] == id) held = 1;
++            if (freep < 0 && !s_sdl_controllers[i]) freep = i;
++        }
++        if (held || freep < 0) continue;
++        SDL_GameController* gc = SDL_GameControllerOpen(j);
++        if (!gc) continue;
++        s_sdl_controllers[freep] = gc;
++        s_sdl_ids[freep] = id;
++        SDL_GameControllerSetPlayerIndex(gc, freep);
++        static const u8 led[4][3] = { {0, 0, 255}, {255, 0, 0}, {0, 255, 0}, {255, 0, 255} };
++        SDL_GameControllerSetLED(gc, led[freep][0], led[freep][1], led[freep][2]);
++        const char* name = SDL_GameControllerName(gc);
++        printf("[cellPad] controle conectado no jogador %d: %s\n", freep + 1, name ? name : "?");
++        fflush(stdout);
++    }
++    for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
++        if (s_sdl_controllers[i]) pad_sdl_read(s_sdl_controllers[i], &out[i]);
++        else { memset(&out[i], 0, sizeof out[i]); }
++    }
++}
+ 
+-        s_host_state[i].connected = 1;
+-
+-        /* Keep a rumble the title set going (see PAD_RUMBLE_HOLD_MS). */
+-        if (s_rumble[i].sent_ms && pad_now_ms() - s_rumble[i].sent_ms >= PAD_RUMBLE_RENEW_MS)
+-            pad_sdl_rumble_send(i);
+-
+-        u16 btns = 0;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK))          btns |= CELL_PAD_CTRL_SELECT;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_LEFTSTICK))     btns |= CELL_PAD_CTRL_L3;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_RIGHTSTICK))    btns |= CELL_PAD_CTRL_R3;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START))         btns |= CELL_PAD_CTRL_START;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_UP))       btns |= CELL_PAD_CTRL_UP;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    btns |= CELL_PAD_CTRL_RIGHT;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_DOWN))     btns |= CELL_PAD_CTRL_DOWN;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_LEFT))     btns |= CELL_PAD_CTRL_LEFT;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  btns |= CELL_PAD_CTRL_L1;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) btns |= CELL_PAD_CTRL_R1;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_Y))             btns |= CELL_PAD_CTRL_TRIANGLE;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_B))             btns |= CELL_PAD_CTRL_CIRCLE;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_A))             btns |= CELL_PAD_CTRL_CROSS;
+-        if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_X))             btns |= CELL_PAD_CTRL_SQUARE;
+-
+-        /* Triggers via axis */
+-        int lt = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+-        int rt = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+-        if (lt > 3000) btns |= CELL_PAD_CTRL_L2;
+-        if (rt > 3000) btns |= CELL_PAD_CTRL_R2;
+-
+-        s_host_state[i].buttons = btns;
+-
+-        /* Analog sticks */
+-        s_host_state[i].analog_lx = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX));
+-        s_host_state[i].analog_ly = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY));
+-        s_host_state[i].analog_rx = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX));
+-        s_host_state[i].analog_ry = pad_sdl_axis_to_u8(SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY));
+-
+-        /* Triggers */
+-        s_host_state[i].trigger_l2 = pad_sdl_trigger_to_u8(lt);
+-        s_host_state[i].trigger_r2 = pad_sdl_trigger_to_u8(rt);
++/* SELECT + START (Share + Options no DualShock 4, Create + Options no
++ * DualSense, View + Menu no Xbox) segurados juntos por PAD_QUIT_HOLD_MS (meio segundo) em
++ * qualquer controle: pedido para fechar o jogo (port Bomberman, para jogar
++ * pelo Big Picture sem teclado). Só os botões físicos do controle contam --
++ * o teclado e o touchpad (que também vira SELECT) ficam de fora. */
++#define PAD_QUIT_HOLD_MS 500
++static volatile int s_quit_requested = 0;
++int cellPad_quit_requested(void) { return s_quit_requested; }
+ 
+-        /* Pressure: SDL has digital buttons, so 0 or 255 */
+-        s_host_state[i].press_up       = (btns & CELL_PAD_CTRL_UP)       ? 255 : 0;
+-        s_host_state[i].press_down     = (btns & CELL_PAD_CTRL_DOWN)     ? 255 : 0;
+-        s_host_state[i].press_left     = (btns & CELL_PAD_CTRL_LEFT)     ? 255 : 0;
+-        s_host_state[i].press_right    = (btns & CELL_PAD_CTRL_RIGHT)    ? 255 : 0;
+-        s_host_state[i].press_triangle = (btns & CELL_PAD_CTRL_TRIANGLE) ? 255 : 0;
+-        s_host_state[i].press_circle   = (btns & CELL_PAD_CTRL_CIRCLE)   ? 255 : 0;
+-        s_host_state[i].press_cross    = (btns & CELL_PAD_CTRL_CROSS)    ? 255 : 0;
+-        s_host_state[i].press_square   = (btns & CELL_PAD_CTRL_SQUARE)   ? 255 : 0;
+-        s_host_state[i].press_l1       = (btns & CELL_PAD_CTRL_L1)       ? 255 : 0;
+-        s_host_state[i].press_r1       = (btns & CELL_PAD_CTRL_R1)       ? 255 : 0;
++static void pad_sdl_check_quit(unsigned long long now)
++{
++    static unsigned long long since = 0;
++    int held = 0;
++    static u8 prev[PAD_MAX_HOST_PORTS];
++    static int logged = 0;
++    for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
++        SDL_GameController* gc = s_sdl_controllers[i];
++        if (!gc) { prev[i] = 0; continue; }
++        const u8 sel = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK) ? 1 : 0;
++        const u8 sta = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START) ? 2 : 0;
++        const u8 cur = sel | sta;
++        /* Diagnóstico: cada aperto de SELECT/START vai para o log (até 40). */
++        if (cur != prev[i] && (cur & ~prev[i]) && logged < 40) {
++            logged++;
++            printf("[cellPad] jogador %d: %s%s%s\n", i + 1, sel ? "SELECT" : "",
++                   (sel && sta) ? " + " : "", sta ? "START" : "");
++            fflush(stdout);
++        }
++        prev[i] = cur;
++        if (cur == 3) held = 1;
++    }
++    if (!held) { since = 0; return; }
++    if (!since) since = now;
++    else if (now - since >= PAD_QUIT_HOLD_MS && !s_quit_requested) {
++        s_quit_requested = 1;
++        printf("[cellPad] SELECT+START segurados: fechando o jogo\n");
++        fflush(stdout);
+     }
+ }
+ 
+-static void pad_init_backend(void)
++/* Window thread (src/main.cpp), every pass. */
++void cellPad_host_pump(void)
+ {
+-    if (!s_sdl_inited) {
+-        if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0) {
+-            SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+-        }
+-        s_sdl_inited = 1;
++    if (!s_pad_initialized) return;
++    static unsigned long long last = 0;
++    const unsigned long long now = pad_now_ms();
++    if (last && now - last < PAD_POLL_INTERVAL_MS) return;
++    last = now;
++    pad_sdl_init_once();
++    PadHostState snap[PAD_MAX_HOST_PORTS];
++    pad_sdl_scan(snap);
++    SDL_AtomicLock(&s_sdl_lock);
++    memcpy(s_sdl_snap, snap, sizeof snap);
++    SDL_AtomicUnlock(&s_sdl_lock);
++    s_sdl_pumped = 1;
++    pad_sdl_check_quit(now);
++    for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
++        if (s_rumble_dirty[i]) { s_rumble_dirty[i] = 0; pad_sdl_rumble_send(i); }
++        else if (s_rumble[i].sent_ms && now - s_rumble[i].sent_ms >= PAD_RUMBLE_RENEW_MS)
++            pad_sdl_rumble_send(i);
+     }
+-    memset(s_sdl_controllers, 0, sizeof(s_sdl_controllers));
++}
+ 
+-    /* Open any controllers already connected */
+-    int num = SDL_NumJoysticks();
+-    for (int i = 0; i < num && i < PAD_MAX_HOST_PORTS; i++) {
+-        if (SDL_IsGameController(i)) {
+-            s_sdl_controllers[i] = SDL_GameControllerOpen(i);
+-        }
++static void pad_poll_sdl2(void)
++{
++    if (s_sdl_pumped) {
++        SDL_AtomicLock(&s_sdl_lock);
++        memcpy(s_host_state, s_sdl_snap, sizeof s_sdl_snap);
++        SDL_AtomicUnlock(&s_sdl_lock);
++        return;
+     }
++#ifndef _WIN32
++    /* No window thread pumping (headless tools): poll here, as before. */
++    pad_sdl_init_once();
++    pad_sdl_scan(s_host_state);
++    for (int i = 0; i < PAD_MAX_HOST_PORTS; i++)
++        if (s_rumble[i].sent_ms && pad_now_ms() - s_rumble[i].sent_ms >= PAD_RUMBLE_RENEW_MS)
++            pad_sdl_rumble_send(i);
++#endif
++}
++
++static void pad_init_backend(void)
++{
++    /* SDL itself is initialised by the first cellPad_host_pump (window
++     * thread) or the first poll on a host without one. */
+ }
+ 
+ static void pad_shutdown_backend(void)
+ {
++    /* Controllers stay open; the window thread owns them. Stop the motors. */
+     for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
+-        if (s_sdl_controllers[i]) {
+-            SDL_GameControllerRumble(s_sdl_controllers[i], 0, 0, 0);
+-            SDL_GameControllerClose(s_sdl_controllers[i]);
+-            s_sdl_controllers[i] = NULL;
+-        }
++        s_rumble[i].lo = s_rumble[i].hi = 0;
++        s_rumble_dirty[i] = 1;
+     }
+-    memset(s_rumble, 0, sizeof s_rumble);
+ }
+ 
+ #endif /* PAD_BACKEND_SDL2 */
+@@ -471,7 +604,6 @@ static void pad_shutdown_backend(void)
+  * 4 ms is 250 Hz, well above the 60 Hz a title can actually observe (and above
+  * a real DualShock 3's own report rate), so no game can tell the difference,
+  * including one sampling for button-press edges. */
+-#define PAD_POLL_INTERVAL_MS 4
+ 
+ static unsigned long long pad_now_ms(void)
+ {
+@@ -485,6 +617,54 @@ static unsigned long long pad_now_ms(void)
+ #endif
+ }
+ 
++/* PS3_AUTOPAD="<ms>:<BTN>[+<BTN>...],...": entrada roteirizada no port 0 para
++ * testes sem janela (ms desde o cellPadInit; cada aperto dura 150 ms).
++ * BTN: START SELECT CROSS CIRCLE SQUARE TRIANGLE UP DOWN LEFT RIGHT L1 R1 L2 R2. */
++static unsigned long long s_autopad_t0 = 0;
++static void pad_poll_autopad(void)
++{
++    static const char* script = (const char*)1;
++    if (script == (const char*)1) script = getenv("PS3_AUTOPAD");
++    if (!script || !*script) return;
++    unsigned long long now = pad_now_ms();
++    if (!s_autopad_t0) s_autopad_t0 = now;
++    unsigned long long t = now - s_autopad_t0;
++    static const struct { const char* n; u16 b; } names[] = {
++        {"START", CELL_PAD_CTRL_START}, {"SELECT", CELL_PAD_CTRL_SELECT},
++        {"CROSS", CELL_PAD_CTRL_CROSS}, {"CIRCLE", CELL_PAD_CTRL_CIRCLE},
++        {"SQUARE", CELL_PAD_CTRL_SQUARE}, {"TRIANGLE", CELL_PAD_CTRL_TRIANGLE},
++        {"UP", CELL_PAD_CTRL_UP}, {"DOWN", CELL_PAD_CTRL_DOWN},
++        {"LEFT", CELL_PAD_CTRL_LEFT}, {"RIGHT", CELL_PAD_CTRL_RIGHT},
++        {"L1", CELL_PAD_CTRL_L1}, {"R1", CELL_PAD_CTRL_R1},
++        {"L2", CELL_PAD_CTRL_L2}, {"R2", CELL_PAD_CTRL_R2},
++    };
++    u16 btns = 0;
++    const char* p = script;
++    while (*p) {
++        char* end; unsigned long long at = strtoull(p, &end, 10);
++        if (*end != ':') break;
++        p = end + 1;
++        u16 b = 0;
++        for (;;) {
++            size_t len = strcspn(p, "+,");
++            for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++)
++                if (strlen(names[i].n) == len && !strncmp(p, names[i].n, len)) b |= names[i].b;
++            p += len;
++            if (*p == '+') { p++; continue; }
++            break;
++        }
++        { static unsigned long long hold = 0; if (!hold) { const char* h = getenv("PS3_AUTOPAD_HOLD"); hold = h ? strtoull(h, 0, 10) : 150; }
++          if (t >= at && t < at + hold) btns |= b; }
++        if (*p == ',') p++;
++    }
++    PadHostState* hs = &s_host_state[0];
++    hs->connected = 1;
++    hs->buttons = btns;
++    hs->analog_lx = (u8)((btns & CELL_PAD_CTRL_LEFT) ? 0 : (btns & CELL_PAD_CTRL_RIGHT) ? 255 : 128);
++    hs->analog_ly = (u8)((btns & CELL_PAD_CTRL_UP) ? 0 : (btns & CELL_PAD_CTRL_DOWN) ? 255 : 128);
++    hs->analog_rx = hs->analog_ry = 128;
++}
++
+ static void pad_poll_backend(void)
+ {
+     /* Benign race: two threads may poll in the same tick. That costs one extra
+@@ -505,7 +685,23 @@ static void pad_poll_backend(void)
+ #endif
+ #ifdef _WIN32
+     if (!s_host_state[0].connected) pad_poll_keyboard();
++#if PAD_BACKEND_SDL2
++    else {
++        /* Controle no port 0: o teclado continua valendo junto com ele. */
++        PadHostState pad0 = s_host_state[0];
++        pad_poll_keyboard();
++        PadHostState* hs = &s_host_state[0];
++        const u16 kb = hs->buttons;
++        *hs = pad0;
++        hs->buttons |= kb;
++        if (kb & (CELL_PAD_CTRL_LEFT | CELL_PAD_CTRL_RIGHT))
++            hs->analog_lx = (kb & CELL_PAD_CTRL_LEFT) ? 0 : 255;
++        if (kb & (CELL_PAD_CTRL_UP | CELL_PAD_CTRL_DOWN))
++            hs->analog_ly = (kb & CELL_PAD_CTRL_UP) ? 0 : 255;
++    }
++#endif
+ #endif
++    pad_poll_autopad();
+ }
+ 
+ /* ---------------------------------------------------------------------------
+@@ -1156,7 +1352,8 @@ s32 cellPadSetActDirect(u32 port_no, CellPadActParam* param)
+ #endif
+ 
+ #if PAD_BACKEND_SDL2
+-    pad_sdl_rumble_send((int)port_no);
++    if (s_sdl_pumped) s_rumble_dirty[port_no] = 1;   /* sent by the window thread */
++    else pad_sdl_rumble_send((int)port_no);
+ #endif
+ 
+     return CELL_OK;
+diff --git a/libs/spurs/cellSpurs.c b/libs/spurs/cellSpurs.c
+index 19a8516..8441e44 100644
+--- a/libs/spurs/cellSpurs.c
++++ b/libs/spurs/cellSpurs.c
+@@ -15,6 +15,10 @@
+ #include "spu_workload.h"   /* SPU image -> lifted-entry dispatch (runtime/spu) */
+ #include "spurs_taskset.h"  /* REAL BE CellSpursTaskset layout builders (fork Option-B) */
+ #include "../../runtime/ppu/ppu_memory.h"   /* vm_base (guest mem) */
++#include "../../runtime/ppu/ppu_context.h"
++#include "../../include/ps3emu/ps3_ftrace.h"  /* PS3_FTRACE: job chains (kinds 15-18) */
++extern PPU_THREAD_LOCAL ppu_context* g_active_ctx;
++static inline uint32_t jc_ft_tid(void) { return g_active_ctx ? (uint32_t)g_active_ctx->thread_id : 255u; }
+ #include <stdio.h>
+ #include <stdlib.h>   /* getenv -- an implicit decl returns int, truncating the pointer */
+ #include <string.h>
+@@ -721,7 +725,39 @@ static u32 s_spurs_event_queue[MAX_SPURS_QUEUES];
+ static u32 s_spurs_event_queue_owner[MAX_SPURS_QUEUES];
+ static int s_spurs_event_queue_n = 0;
+ static SRWLOCK s_spurs_queue_lock = SRWLOCK_INIT;
+-static u32 s_spurs_port_queue[64];
++static u32 s_spurs_port_queue[64];   /* primeira ligação de cada porta (fallback) */
++
++/* Portas de evento por INSTÂNCIA do SPURS. No PS3 cada instância tem seu
++ * próprio espaço de portas; com uma tabela global, a segunda instância que
++ * pedia a mesma porta estática recebia CELL_SPURS_CORE_ERROR_BUSY. O
++ * Bomberman ULTRA cria o SPURS "Cr" (job chains, porta 1) e depois um SPURS
++ * para o MultiStream cujo spu_printf também pede a porta 1 -- o init do áudio
++ * falhava e a thread do MultiStream ficava girando em receive(q=0).
++ * A consulta pelo lado SPU usa a instância da thread corrente
++ * (spurs_set_current_instance), caindo na primeira ligação se não houver. */
++#define SPURS_PORT_BIND_MAX 128
++static struct { u32 spurs, port, queue; } s_port_bind[SPURS_PORT_BIND_MAX];
++static int s_port_bind_n = 0;
++static _Thread_local u32 s_tls_spurs_instance = 0;
++
++void spurs_set_current_instance(uint32_t spurs_ea) { s_tls_spurs_instance = spurs_ea; }
++
++static int port_bind_find(u32 spurs, u32 port)
++{
++    for (int i = 0; i < s_port_bind_n; i++)
++        if (s_port_bind[i].spurs == spurs && s_port_bind[i].port == port) return i;
++    return -1;
++}
++static void port_bind_remove_at(int i)
++{
++    s_port_bind[i] = s_port_bind[--s_port_bind_n];
++}
++static void port_primary_rebuild(u32 port)
++{
++    s_spurs_port_queue[port] = 0;
++    for (int i = 0; i < s_port_bind_n; i++)
++        if (s_port_bind[i].port == port) { s_spurs_port_queue[port] = s_port_bind[i].queue; break; }
++}
+ 
+ /* Release anyone blocked on the completion queues SPURS attached; see
+  * cellSpursFinalize. */
+@@ -735,8 +771,10 @@ static void spurs_cancel_attached_queues(u32 spurs_ea)
+         u32 owner = s_spurs_event_queue_owner[i];
+         if (spurs_ea == 0 || owner == 0 || owner == spurs_ea) {
+             u32 q = s_spurs_event_queue[i];
++            for (int b = s_port_bind_n - 1; b >= 0; b--)
++                if (s_port_bind[b].queue == q) port_bind_remove_at(b);
+             for (u32 p = 0; p < 64; p++)
+-                if (s_spurs_port_queue[p] == q) s_spurs_port_queue[p] = 0;
++                if (s_spurs_port_queue[p] == q) port_primary_rebuild(p);
+             sys_event_queue_cancel_by_id(q);
+         } else {
+             s_spurs_event_queue[keep]       = s_spurs_event_queue[i];
+@@ -759,7 +797,11 @@ static void spurs_cancel_attached_queues(u32 spurs_ea)
+ uint32_t spurs_port_queue(uint32_t port)
+ {
+     AcquireSRWLockShared(&s_spurs_queue_lock);
+-    u32 q = port < 64 ? s_spurs_port_queue[port] : 0;
++    u32 q = 0;
++    if (port < 64) {
++        int i = s_tls_spurs_instance ? port_bind_find(s_tls_spurs_instance, port) : -1;
++        q = i >= 0 ? s_port_bind[i].queue : s_spurs_port_queue[port];
++    }
+     ReleaseSRWLockShared(&s_spurs_queue_lock);
+     return q;
+ }
+@@ -791,21 +833,28 @@ s32 cellSpursAttachLv2EventQueue(CellSpurs* spurs, u32 queue, u8* port,
+      * 0x10..0x3F first (the low ports are the ones titles ask for by number),
+      * and hand it back. This used to write 0 either way, so every attach
+      * landed on port 0 and the SPU's real port number routed nowhere. */
++    const u32 inst = (u32)(uintptr_t)spurs;
+     u32 p = *port_h;
+     if (isDynamic) {
+         p = 64;
+-        for (u32 i = 0x10; i < 64 && p == 64; i++) if (!s_spurs_port_queue[i]) p = i;
+-        for (u32 i = 0; i < 0x10 && p == 64; i++) if (!s_spurs_port_queue[i]) p = i;
++        for (u32 i = 0x10; i < 64 && p == 64; i++) if (port_bind_find(inst, i) < 0) p = i;
++        for (u32 i = 0; i < 0x10 && p == 64; i++) if (port_bind_find(inst, i) < 0) p = i;
+         if (p == 64) { ReleaseSRWLockExclusive(&s_spurs_queue_lock); return CELL_SPURS_CORE_ERROR_BUSY; }
+         *port_h = (u8)p;
+     } else if (p >= 64) {
+         ReleaseSRWLockExclusive(&s_spurs_queue_lock);
+         return CELL_SPURS_CORE_ERROR_INVAL;
+-    } else if (s_spurs_port_queue[p]) {
++    } else if (port_bind_find(inst, p) >= 0) {
+         ReleaseSRWLockExclusive(&s_spurs_queue_lock);
+         return CELL_SPURS_CORE_ERROR_BUSY;
+     }
+-    s_spurs_port_queue[p] = queue;
++    if (s_port_bind_n < SPURS_PORT_BIND_MAX) {
++        s_port_bind[s_port_bind_n].spurs = inst;
++        s_port_bind[s_port_bind_n].port  = p;
++        s_port_bind[s_port_bind_n].queue = queue;
++        s_port_bind_n++;
++    }
++    if (!s_spurs_port_queue[p]) s_spurs_port_queue[p] = queue;
+     printf("[cellSpurs] AttachLv2EventQueue(queue=%u) port=%u%s\n", queue, p,
+            isDynamic ? " (dynamic)" : "");
+     ReleaseSRWLockExclusive(&s_spurs_queue_lock);
+@@ -816,7 +865,11 @@ s32 cellSpursDetachLv2EventQueue(CellSpurs* spurs, u8 port)
+ {
+     if (!spurs) return CELL_SPURS_CORE_ERROR_NULL_POINTER;
+     AcquireSRWLockExclusive(&s_spurs_queue_lock);
+-    if (port < 64) s_spurs_port_queue[port] = 0;
++    if (port < 64) {
++        int i = port_bind_find((u32)(uintptr_t)spurs, port);
++        if (i >= 0) port_bind_remove_at(i);
++        port_primary_rebuild(port);
++    }
+     ReleaseSRWLockExclusive(&s_spurs_queue_lock);
+     printf("[cellSpurs] DetachLv2EventQueue(port=%u)\n", port);
+     return CELL_OK;
+@@ -2200,7 +2253,7 @@ s32 _cellSpursEventFlagInitialize(void* spurs, void* taskset,
+ s32 _cellSpursSendSignal(void* taskset, u32 taskId)
+ {
+     uint32_t taskset_ea = (uint32_t)(uintptr_t)taskset;
+-    printf("[cellSpurs] _SendSignal(taskset=0x%08X id=%u)\n", taskset_ea, taskId);
++    if (ps3_log_verbose()) printf("[cellSpurs] _SendSignal(taskset=0x%08X id=%u)\n", taskset_ea, taskId);
+     /* Real delivery now that SPU tasks execute (comment was stale). */
+     if (taskset_ea) spu_taskset_signal_task(taskset_ea, taskId);
+     return CELL_OK;
+@@ -2246,6 +2299,7 @@ static struct {
+ 
+ static void jc_dump_commands(const char* tag, u32 ea, int max_words)
+ {
++    if (!ps3_log_verbose()) return;
+     printf("[cellSpurs] %s chain@0x%08X commands:", tag, ea);
+     for (int i = 0; i < max_words; i++) {
+         u64 cmd = vm_read64(ea + (u32)i * 8);
+@@ -2283,7 +2337,7 @@ s32 _cellSpursJobChainAttributeInitialize(u32 jmRevision, u32 sdkRevision, u64 a
+     vm_write32((u32)attr_ea + JCATTR_MAX_SIZE_D, 0);
+     vm_write32((u32)attr_ea + JCATTR_INIT_SPU,   0);
+     vm_write32((u32)attr_ea + JCATTR_NAME,       0);
+-    printf("[cellSpurs] _JobChainAttributeInitialize(attr=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u maxCont=%u)\n",
++    if (ps3_log_verbose()) printf("[cellSpurs] _JobChainAttributeInitialize(attr=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u maxCont=%u)\n",
+            (u32)attr_ea, (u32)entry_ea, sizeJobDescriptor, maxGrabbedJob, maxContention);
+     return CELL_OK;
+ }
+@@ -2292,7 +2346,7 @@ s32 cellSpursJobChainAttributeSetName(u64 attr_ea, u64 name_ea)
+ {
+     if (!attr_ea) return CELL_SPURS_TASK_ERROR_NULL_POINTER;
+     vm_write32((u32)attr_ea + JCATTR_NAME, (u32)name_ea);
+-    printf("[cellSpurs] JobChainAttributeSetName(attr=0x%08X, \"%s\")\n",
++    if (ps3_log_verbose()) printf("[cellSpurs] JobChainAttributeSetName(attr=0x%08X, \"%s\")\n",
+            (u32)attr_ea, name_ea ? (const char*)(vm_base + (u32)name_ea) : "-");
+     return CELL_OK;
+ }
+@@ -2337,7 +2391,7 @@ s32 cellSpursCreateJobChainWithAttribute(u64 spurs_ea, u64 jc_ea, u64 attr_ea)
+         }
+         _n++;
+     }
+-    printf("[cellSpurs] CreateJobChainWithAttribute(jc=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u name=\"%s\")\n",
++    if (ps3_log_verbose()) printf("[cellSpurs] CreateJobChainWithAttribute(jc=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u name=\"%s\")\n",
+            (u32)jc_ea, entry, sd_mg >> 16, sd_mg & 0xFFFFu,
+            name_ea ? (const char*)(vm_base + name_ea) : "-");
+ 
+@@ -2438,7 +2492,34 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
+      * DMA traffic at all. spu_workload_dispatch_job reproduces jm2's staging.
+      * Synchronous by design: a job runs to completion, and the chain's own
+      * NEXT/CALL/RET commands are what order them. */
+-    spu_workload_dispatch_job(vm_base + ea_bin, size_bin, job_ea, size_desc);
++    {
++        /* PS3_JC_STATS: tempo por binário de job (qual job domina a cadeia). */
++        static int st = -1;
++        if (st < 0) { const char* e = getenv("PS3_JC_STATS"); st = e && e[0] == '1'; }
++        LARGE_INTEGER a0, a1, fq;
++        if (st) QueryPerformanceCounter(&a0);
++        spu_workload_dispatch_job(vm_base + ea_bin, size_bin, job_ea, size_desc);
++        if (st) {
++            enum { N = 8 };
++            static volatile long long tot[N], cnt[N]; static volatile u32 key[N];
++            static volatile long long w0 = 0;
++            QueryPerformanceCounter(&a1); QueryPerformanceFrequency(&fq);
++            const long long us = (long long)((a1.QuadPart - a0.QuadPart) * 1000000.0 / (double)fq.QuadPart);
++            int k = 0;
++            for (; k < N; k++) if (key[k] == ea_bin || key[k] == 0) break;
++            if (k < N) { key[k] = ea_bin; InterlockedAdd64(&tot[k], us); InterlockedIncrement64(&cnt[k]); }
++            const long long now_ms = (long long)(a1.QuadPart * 1000.0 / (double)fq.QuadPart);
++            if (!w0) w0 = now_ms;
++            if (now_ms - w0 >= 2000 && InterlockedExchange64(&w0, now_ms) != now_ms) {
++                printf("[cellSpurs] jobs por binário (2 s):");
++                for (int i = 0; i < N; i++) if (key[i]) {
++                    const long long t = InterlockedExchange64(&tot[i], 0), c = InterlockedExchange64(&cnt[i], 0);
++                    printf(" [0x%08X: %lld jobs, %.2f ms/job]", key[i], c, c ? t / 1000.0 / c : 0.0);
++                }
++                printf("\n"); fflush(stdout);
++            }
++        }
++    }
+ }
+ 
+ /* Walk one chain's command stream. Bounded: a malformed or self-looping stream
+@@ -2667,6 +2748,139 @@ static void jc_signal_done(u32 jc_ea, int job_index)
+     }
+ }
+ 
++/* ---------------------------------------------------------------------------
++ * Jobs em paralelo (port Bomberman)
++ *
++ * No PS3 os JOBs de uma cadeia entre dois SYNC rodam em paralelo nos SPUs do
++ * SPURS (5-6). O walker os rodava um por um numa só thread host, e o PPU fica
++ * parado em JoinJobChain esperando: no Bomberman isso era ~80% do tempo do
++ * frame. Aqui cada grupo de JOBs consecutivos vai para um pool de threads
++ * (cada uma com o seu número de SPU, como pede spurs_job_set_spu_num), e as
++ * conclusões são sinalizadas em ordem depois que o grupo inteiro termina.
++ * PS3_JC_THREADS=1 volta ao modo serial.
++ * -------------------------------------------------------------------------*/
++extern void spurs_job_set_spu_num(uint32_t n);
++/* Até 11 workers + o walker: o Bomberman roda ~100 jobs de render por frame,
++ * mais que os 6 SPUs do PS3 dariam conta no tempo do PC. O número de SPU
++ * visto pelo job continua em 0..5 (módulo 6). */
++#define JC_POOL_MAX   11
++#define JC_BATCH_MAX  64
++static struct {
++    SRWLOCK            lock;        /* um grupo por vez usa o pool */
++    SRWLOCK            cv_lock;
++    CONDITION_VARIABLE cv;
++    volatile LONG      gen;         /* incrementa a cada grupo publicado */
++    volatile LONG      open;        /* grupo aceitando workers (sob cv_lock) */
++    volatile LONG      active;      /* workers dentro de jc_pool_drain */
++    volatile LONG      next, done, total;
++    u32                jobs[JC_BATCH_MAX];
++    int                idx0;
++    u32                size_desc;
++    int                nthreads;    /* workers além da thread do walker */
++    int                started;
++} s_jp;
++
++static void jc_pool_drain(void)
++{
++    for (;;) {
++        const LONG k = InterlockedIncrement(&s_jp.next) - 1;
++        if (k >= s_jp.total) break;
++        jc_run_one_job(s_jp.jobs[k], s_jp.idx0 + (int)k, s_jp.size_desc);
++        InterlockedIncrement(&s_jp.done);
++    }
++}
++
++static DWORD WINAPI jc_pool_worker(LPVOID p)
++{
++    spurs_job_set_spu_num((uint32_t)(intptr_t)p % 6u);
++    LONG seen = 0;
++    for (;;) {
++        AcquireSRWLockExclusive(&s_jp.cv_lock);
++        while (!(s_jp.open && s_jp.gen != seen))
++            SleepConditionVariableSRW(&s_jp.cv, &s_jp.cv_lock, INFINITE, 0);
++        seen = s_jp.gen;
++        InterlockedIncrement(&s_jp.active);     /* só entra com o grupo aberto */
++        ReleaseSRWLockExclusive(&s_jp.cv_lock);
++        jc_pool_drain();
++        InterlockedDecrement(&s_jp.active);
++    }
++    return 0;
++}
++
++static int jc_pool_threads(void)
++{
++    if (s_jp.started) return s_jp.nthreads;
++    /* primeira chamada vem de uma thread de cadeia; corrida benigna evitada
++     * pelo lock do grupo, tomado antes daqui */
++    s_jp.started = 1;
++    int n = -1;
++    const char* e = getenv("PS3_JC_THREADS");
++    if (e && *e) n = atoi(e) - 1;
++    if (n < 0) {
++        SYSTEM_INFO si; GetSystemInfo(&si);
++        n = (int)si.dwNumberOfProcessors - 2;   /* deixa núcleo p/ PPU, RSX, áudio */
++    }
++    if (n > JC_POOL_MAX) n = JC_POOL_MAX;
++    if (n < 0) n = 0;
++    InitializeSRWLock(&s_jp.cv_lock);
++    InitializeConditionVariable(&s_jp.cv);
++    int made = 0;
++    for (int i = 0; i < n; i++) {
++        HANDLE th = CreateThread(NULL, 1u << 20, jc_pool_worker, (LPVOID)(intptr_t)(i + 1), 0, NULL);
++        if (!th) break;
++        CloseHandle(th);
++        made++;
++    }
++    s_jp.nthreads = made;
++    printf("[cellSpurs] job chains: %d worker thread(s) + walker run each job group in parallel\n", made);
++    return made;
++}
++
++/* Roda os jobs [jobs, jobs+n) -- independentes entre si, como entre dois SYNC
++ * -- e só volta quando todos acabaram. */
++static void jc_run_group_impl(const u32* jobs, int n, int idx0, u32 size_desc);
++static PPU_THREAD_LOCAL uint32_t s_jc_ft_slot;
++static void jc_run_group(const u32* jobs, int n, int idx0, u32 size_desc)
++{
++    const uint64_t t0 = PS3_FT_ON() ? ps3_ft_now() : 0;
++    jc_run_group_impl(jobs, n, idx0, size_desc);
++    if (t0) ps3_ft_span(18, s_jc_ft_slot, (uint32_t)n, jobs[0], t0, ps3_ft_now());
++}
++static void jc_run_group_impl(const u32* jobs, int n, int idx0, u32 size_desc)
++{
++    if (n <= 0) return;
++    if (n == 1 || !TryAcquireSRWLockExclusive(&s_jp.lock)) {
++        for (int i = 0; i < n; i++) jc_run_one_job(jobs[i], idx0 + i, size_desc);
++        return;
++    }
++    if (jc_pool_threads() == 0) {
++        ReleaseSRWLockExclusive(&s_jp.lock);
++        for (int i = 0; i < n; i++) jc_run_one_job(jobs[i], idx0 + i, size_desc);
++        return;
++    }
++    /* Nenhum worker está dentro de um drain aqui (o grupo anterior fechou e
++     * esperou active == 0), então os contadores podem ser zerados. */
++    memcpy(s_jp.jobs, jobs, (size_t)n * sizeof jobs[0]);
++    s_jp.idx0 = idx0;
++    s_jp.size_desc = size_desc;
++    s_jp.done = 0;
++    s_jp.next = 0;
++    s_jp.total = n;
++    AcquireSRWLockExclusive(&s_jp.cv_lock);
++    InterlockedIncrement(&s_jp.gen);
++    s_jp.open = 1;
++    WakeAllConditionVariable(&s_jp.cv);
++    ReleaseSRWLockExclusive(&s_jp.cv_lock);
++    spurs_job_set_spu_num(0);
++    jc_pool_drain();
++    while (s_jp.done < n) SwitchToThread();
++    AcquireSRWLockExclusive(&s_jp.cv_lock);
++    s_jp.open = 0;                               /* ninguém novo entra */
++    ReleaseSRWLockExclusive(&s_jp.cv_lock);
++    while (s_jp.active) SwitchToThread();        /* quem entrou sai do drain */
++    ReleaseSRWLockExclusive(&s_jp.lock);
++}
++
+ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+ {
+     u32 pc = entry_ea, ret_pc = 0;
+@@ -2687,23 +2901,37 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+ 
+         if (cmd != 0 && op == 0) {                    /* JOB */
+             { extern u32 g_spurs_job_ls_handle; g_spurs_job_ls_handle = jc_ea; }
+-            int idx = jobs++;
+-            jc_run_one_job((u32)(cmd & ~7ull), idx, size_desc);
++            /* Consecutive JOBs (up to the next SYNC/other command) form one
++             * group the SPUs would run in parallel. */
++            static int s_par = -1;
++            if (s_par < 0) { const char* e = getenv("PS3_JC_THREADS"); s_par = !(e && atoi(e) == 1); }
++            u32 group[JC_BATCH_MAX];
++            int n = 0;
++            u32 q = pc;
++            for (;;) {
++                const u64 c2 = vm_read64(q);
++                if (c2 == 0 || (c2 & 7) != 0 || n >= JC_BATCH_MAX || (!s_par && n >= 1)) break;
++                group[n++] = (u32)(c2 & ~7ull);
++                q += 8;
++            }
++            const int idx0 = jobs;
++            jobs += n;
++            jc_run_group(group, n, idx0, size_desc);
+             idle = 0;                    /* real work: the chain is healthy */
+             /* Signal per JOB, not per lap. The application waits once for each
+              * unit of work it queued -- this title notified the guard 7 times
+              * and sat in event_queue_receive 30 times -- so batching the
+              * completion into one event per pass leaves it waiting for
+              * completions that, from its point of view, never arrive. */
+-            jc_signal_done(jc_ea, idx);
+-            pc += 8; continue;
++            for (int i = 0; i < n; i++) jc_signal_done(jc_ea, idx0 + i);
++            pc = q; continue;
+         }
+         if (op == 1) { pc = (u32)(cmd & ~7ull); continue; }   /* RESET_PC */
+         if (op == 3) { pc = (u32)(cmd & ~7ull); continue; }   /* NEXT     */
+         if (op == 4) { ret_pc = pc + 8; pc = (u32)(cmd & ~7ull); continue; }  /* CALL */
+         if (op == 7) {
+             if (ext == (7 | (15 << 3))) {                     /* END */
+-                printf("[cellSpurs] chain 0x%08X: END after %d job(s)\n", jc_ea, jobs);
++                if (ps3_log_verbose()) printf("[cellSpurs] chain 0x%08X: END after %d job(s)\n", jc_ea, jobs);
+                 if (jobs) jc_signal_done(jc_ea, jobs - 1);
+                 return;
+             }
+@@ -2730,6 +2958,11 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+            jc_ea, jobs);
+ }
+ 
++/* Join espera numa variável de condição em vez de girar com Sleep(0): o
++ * núcleo que o PPU queimava esperando fica para os jobs. */
++static SRWLOCK            s_jc_done_lock;
++static CONDITION_VARIABLE s_jc_done_cv;
++
+ static DWORD WINAPI jc_thread(LPVOID p)
+ {
+     int slot = (int)(intptr_t)p;
+@@ -2740,15 +2973,86 @@ static DWORD WINAPI jc_thread(LPVOID p)
+      * Confirms timing-vs-never before committing to the async rewrite. */
+     { const char* d = getenv("SPURS_JC_DELAY");
+       if (d && *d) Sleep((unsigned)atoi(d)); }
++    /* PS3_JC_STATS=1: tempo gasto executando job chains (os jobs SPU de
++     * renderização), por segundo -- o PPU espera por eles em Join. */
++    static int s_st = -1;
++    if (s_st < 0) { const char* e = getenv("PS3_JC_STATS"); s_st = e && e[0] == '1'; }
++    LARGE_INTEGER t0, t1, fq;
++    if (s_st) QueryPerformanceCounter(&t0);
++    s_jc_ft_slot = (uint32_t)slot;
++    const uint64_t ft0 = PS3_FT_ON() ? ps3_ft_now() : 0;
+     jc_execute(s_jobchains[slot].entry_ea, s_jobchains[slot].jc_ea,
+                s_jobchains[slot].size_desc);
++    if (ft0) ps3_ft_span(15, (uint32_t)slot, s_jobchains[slot].jc_ea, 0, ft0, ps3_ft_now());
++    if (s_st) {
++        static volatile long long acc_us = 0, runs = 0, w0 = 0;
++        QueryPerformanceCounter(&t1); QueryPerformanceFrequency(&fq);
++        const long long us = (long long)((t1.QuadPart - t0.QuadPart) * 1000000.0 / (double)fq.QuadPart);
++        const long long now_ms = (long long)(t1.QuadPart * 1000.0 / (double)fq.QuadPart);
++        InterlockedAdd64(&acc_us, us); InterlockedIncrement64(&runs);
++        if (!w0) w0 = now_ms;
++        if (now_ms - w0 >= 2000) {
++            const long long a = InterlockedExchange64(&acc_us, 0), r = InterlockedExchange64(&runs, 0);
++            printf("[cellSpurs] job chains: %lld runs, %.1f ms/s executing (%.2f ms/run)\n",
++                   (long long)r, a / 1000.0 / ((now_ms - w0) / 1000.0), r ? a / 1000.0 / r : 0.0);
++            fflush(stdout);
++            w0 = now_ms;
++        }
++    }
+     s_jobchains[slot].running = 0;
++    AcquireSRWLockExclusive(&s_jc_done_lock);      /* acorda quem está em Join */
++    WakeAllConditionVariable(&s_jc_done_cv);
++    ReleaseSRWLockExclusive(&s_jc_done_lock);
+     /* Tell the application the chain is done. Without this the walk finishes
+      * in silence and a thread waiting on the attached queue never runs again. */
+     jc_signal_done(s_jobchains[slot].jc_ea, -1);
+     return 0;
+ }
+ 
++/* Uma thread fixa por cadeia em vez de uma thread nova a cada execução: o
++ * Bomberman roda ~250 cadeias por segundo, e criar/destruir a thread custava
++ * tempo e atraso de partida em toda execução. jc_thread continua sendo o
++ * corpo; o runner só espera o próximo pedido. */
++static struct {
++    SRWLOCK lock; CONDITION_VARIABLE cv;
++    volatile LONG pending; int started;
++} s_jc_runner[MAX_JOBCHAINS];
++
++static DWORD WINAPI jc_runner(LPVOID p)
++{
++    const int slot = (int)(intptr_t)p;
++    for (;;) {
++        AcquireSRWLockExclusive(&s_jc_runner[slot].lock);
++        while (!s_jc_runner[slot].pending)
++            SleepConditionVariableSRW(&s_jc_runner[slot].cv, &s_jc_runner[slot].lock, INFINITE, 0);
++        s_jc_runner[slot].pending = 0;
++        ReleaseSRWLockExclusive(&s_jc_runner[slot].lock);
++        jc_thread((LPVOID)(intptr_t)slot);
++    }
++    return 0;
++}
++
++/* 0 = pedido entregue ao runner do slot. */
++static int jc_kick_runner(int slot)
++{
++    static int off = -1;
++    if (off < 0) { const char* e = getenv("PS3_JC_RUNNER"); off = e && e[0] == '0'; }
++    if (off || slot < 0 || slot >= MAX_JOBCHAINS) return -1;
++    if (!s_jc_runner[slot].started) {
++        InitializeSRWLock(&s_jc_runner[slot].lock);
++        InitializeConditionVariable(&s_jc_runner[slot].cv);
++        HANDLE th = CreateThread(NULL, 1u << 20, jc_runner, (LPVOID)(intptr_t)slot, 0, NULL);
++        if (!th) return -1;
++        CloseHandle(th);
++        s_jc_runner[slot].started = 1;
++    }
++    AcquireSRWLockExclusive(&s_jc_runner[slot].lock);
++    s_jc_runner[slot].pending = 1;
++    WakeConditionVariable(&s_jc_runner[slot].cv);
++    ReleaseSRWLockExclusive(&s_jc_runner[slot].lock);
++    return 0;
++}
++
+ /* cellSpursRunJobChain -- start job chain execution (async, like the real one). */
+ /* cellSpursRunJobChain(const CellSpursJobChain* jobChain) -- ONE argument.
+  *
+@@ -2771,16 +3075,20 @@ static s32 jc_start(u64 jc_ea, const char* who)
+         if (s_jobchains[i].jc_ea != (u32)jc_ea) continue;
+         s_jobchains[i].run_count++;
+         if (s_jobchains[i].run_count <= 3) {
+-            printf("[cellSpurs] %s(jc=0x%08X) run#%d entry=0x%08X\n",
++            if (ps3_log_verbose()) printf("[cellSpurs] %s(jc=0x%08X) run#%d entry=0x%08X\n",
+                    who, (u32)jc_ea, s_jobchains[i].run_count, s_jobchains[i].entry_ea);
+             jc_dump_commands(who, s_jobchains[i].entry_ea, 16);
+         }
+         if (s_off || !s_jobchains[i].entry_ea) return CELL_OK;
++        if (PS3_FT_ON()) { const uint64_t t = ps3_ft_now();
++                           ps3_ft_span(17, jc_ft_tid(), (u32)jc_ea, (uint32_t)s_jobchains[i].running, t, t); }
+         /* Coalesce: a chain already being walked must not start twice. */
+         if (_InterlockedCompareExchange(&s_jobchains[i].running, 1, 0) == 0) {
+-            HANDLE th = CreateThread(NULL, 1u << 20, jc_thread, (LPVOID)(intptr_t)i, 0, NULL);
+-            if (th) CloseHandle(th);
+-            else s_jobchains[i].running = 0;
++            if (jc_kick_runner(i) != 0) {
++                HANDLE th = CreateThread(NULL, 1u << 20, jc_thread, (LPVOID)(intptr_t)i, 0, NULL);
++                if (th) CloseHandle(th);
++                else s_jobchains[i].running = 0;
++            }
+         }
+         return CELL_OK;
+     }
+@@ -2833,16 +3141,17 @@ s32 cellSpursJoinJobChain(u64 jc_ea)
+      * (black frames, glyph quads built from half-written vertices), and the
+      * next frame's Run was coalesced away while this walker was still busy,
+      * so that frame's data was never written at all. */
++    const uint64_t ft0 = PS3_FT_ON() ? ps3_ft_now() : 0;
+     for (int i = 0; i < MAX_JOBCHAINS; i++) {
+         if (s_jobchains[i].jc_ea != (u32)jc_ea) continue;
+         while (s_jobchains[i].running) {
+-#ifdef _WIN32
+-            Sleep(0);
+-#else
+-            usleep(0);
+-#endif
++            AcquireSRWLockExclusive(&s_jc_done_lock);
++            if (s_jobchains[i].running)
++                SleepConditionVariableSRW(&s_jc_done_cv, &s_jc_done_lock, 2, 0);
++            ReleaseSRWLockExclusive(&s_jc_done_lock);
+         }
+     }
++    if (ft0) ps3_ft_span(16, jc_ft_tid(), (u32)jc_ea, 0, ft0, ps3_ft_now());
+     return CELL_OK;
+ }
+ 
+diff --git a/libs/video/cellGcmSys.c b/libs/video/cellGcmSys.c
+index efad9b9..ddb6312 100644
+--- a/libs/video/cellGcmSys.c
++++ b/libs/video/cellGcmSys.c
+@@ -8,6 +8,7 @@
+  * Actual rendering is handled elsewhere -- this module just tracks state.
+  */
+ 
++#include "../../runtime/ps3_log.h"
+ #include "rsx_live_draw.h"
+ #include "rsx_draw_engine.h"
+ #include "cellGcmSys.h"
+@@ -78,6 +79,10 @@ static u32  s_flip_status = CELL_GCM_FLIP_STATUS_DONE;
+  * pending flip completion was marked for: a completion delivered late must not
+  * mark DONE a flip requested after it (see ppu_gcm_pump). */
+ static volatile u32 s_flip_req_seq, s_flip_tick_seq;
++static int s_flip_precise = 0;
++void cellGcm_set_precise_flip(int on) { s_flip_precise = on; }
++/* Há um flip executado pelo drain e ainda não completado? */
++int cellGcm_flip_outstanding(void);
+ /* The status's read-modify-write transitions (request, tick, completion) run
+  * on different threads; without a lock a completion could read "no newer
+  * request" just before a request stored WAITING and then overwrite it. */
+@@ -647,7 +652,7 @@ u32 cellGcmGetCurrentField(void)
+ /* NID: 0xA53D12AE */
+ void cellGcmSetFlipMode(u32 mode)
+ {
+-    printf("[cellGcmSys] SetFlipMode(mode=%u)\n", mode);
++    if (ps3_log_verbose()) printf("[cellGcmSys] SetFlipMode(mode=%u)\n", mode);
+     s_flip_mode = mode;
+ }
+ 
+@@ -676,10 +681,17 @@ void cellGcmSetWaitFlip(void)
+ void cellGcmSetWaitFlipUnsafe(void) { cellGcmSetWaitFlip(); }
+ 
+ /* NID: 0x51C9D62B */
++
++/* getenv em caminho quente (cada drain / cada poll de flip): resultado em cache. */
++static int gcm_env_flag(const char* name, int* cache)
++{
++    if (*cache < 0) *cache = getenv(name) ? 1 : 0;
++    return *cache;
++}
+ void cellGcmResetFlipStatus(void)
+ {
+     { static int n = 0;
+-      if (getenv("FLIP_DBG") && PS3_LOG_FIRST(n, 12))
++      static int c_fd1 = -1; if (gcm_env_flag("FLIP_DBG", &c_fd1) && PS3_LOG_FIRST(n, 12))
+           fprintf(stderr, "[FLIP] ResetFlipStatus%c", 10); }
+     FLIP_LOCK();
+     s_flip_status = CELL_GCM_FLIP_STATUS_WAITING;
+@@ -698,7 +710,7 @@ u32 cellGcmGetFlipStatus(void)
+      * every wait-for-flip loop exit on its first poll, so titles ran
+      * completely unpaced (wave: 95 fps with a fixed-dt simulation). */
+     { static int n = 0;
+-      if (getenv("FLIP_DBG") && PS3_LOG_FIRST(n, 24))
++      static int c_fd2 = -1; if (gcm_env_flag("FLIP_DBG", &c_fd2) && PS3_LOG_FIRST(n, 24))
+           fprintf(stderr, "[FLIP] GetFlipStatus -> %u (0=DONE 1=WAITING)%c",
+                   s_flip_status, 10); }
+     return s_flip_status;
+@@ -793,9 +805,12 @@ void ppu_gcm_pump(void)
+                    fprintf(stderr, "[gcm-pump] calls=%u vblank=%u flip=%u vcount=%u%c",
+                            calls, nv, nf, s_vblank_count, 10); } }
+     if ((p & 1) && s_vblank_handler_opd && g_ps3_guest_caller) {
++        const uint64_t _f0 = PS3_FT_ON() ? ps3_ft_now() : 0;
+         ydkj_restore_handler_opd(s_vblank_handler_opd, s_vblank_handler_code);
+         g_ps3_guest_caller(s_vblank_handler_opd, (uint64_t)s_vblank_count,
+                            0, 0, 0, 0, 0, 0, 0);
++        if (_f0) { extern PPU_THREAD_LOCAL ppu_context* g_active_ctx;
++                   ps3_ft_span(22, g_active_ctx ? (uint32_t)g_active_ctx->thread_id : 255u, s_vblank_count, 0, _f0, ps3_ft_now()); }
+     }
+     if (p & 2) {
+         /* Delivery waits for a guest thread to reach an HLE call or a timer
+@@ -809,10 +824,13 @@ void ppu_gcm_pump(void)
+         if (s_flip_tick_seq == s_flip_req_seq)
+             s_flip_status = CELL_GCM_FLIP_STATUS_DONE;
+         FLIP_UNLOCK();
++        const uint64_t _f0 = PS3_FT_ON() ? ps3_ft_now() : 0;
+         if (s_flip_handler_opd && g_ps3_guest_caller) {
+             ydkj_restore_handler_opd(s_flip_handler_opd, s_flip_handler_code);
+             g_ps3_guest_caller(s_flip_handler_opd, 1, 0, 0, 0, 0, 0, 0, 0);
+         }
++        if (_f0) { extern PPU_THREAD_LOCAL ppu_context* g_active_ctx;
++                   ps3_ft_span(23, g_active_ctx ? (uint32_t)g_active_ctx->thread_id : 255u, s_flip_handler_opd ? 1u : 0u, 0, _f0, ps3_ft_now()); }
+     }
+     if (user) {
+         u32 cmd = (u32)user;
+@@ -837,15 +855,46 @@ void cellGcmTickVBlank(void) { s_vblank_count++; GCM_PENDING_SET(1); }
+  * and its handler runs code that puts the status back to WAITING, so the
+  * poll never saw DONE and the game never rendered another frame. On hardware
+  * the callback IS the flip interrupt -- no flip, no callback. */
+-void cellGcmTickFlip(void)
++/* Como cellGcmTickFlip, mas diz se completou um flip -- o host usa isso para
++ * ritmar os flips a 60 Hz sem quantizar no tick (port Bomberman). */
++int cellGcmTickFlipReport(void)
+ {
+     /* Same rule as cellGcm_request_tick: a flip still ahead of the drain has
+      * not happened yet. */
+     FLIP_LOCK();
+-    const int waiting = s_flip_status == CELL_GCM_FLIP_STATUS_WAITING && gcm_flip_executed_take();
+-    if (waiting) s_flip_tick_seq = s_flip_req_seq;
++    int waiting;
++    if (s_flip_precise) {
++        /* Modo preciso (port Bomberman, que segura o FIFO até o flip
++         * completar): completa exatamente o flip que o drain alcançou e o
++         * carimba com a sequência DELE. O modo antigo carimbava com o último
++         * pedido, marcando como feito um flip que o RSX ainda nem tinha
++         * alcançado -- e o jogo ficava um flip "adiantado" para sempre. */
++        const u32 r = s_fifo_flips_reached;
++        waiting = r != s_fifo_flips_completed;
++        if (waiting) {
++            s_fifo_flips_completed = r;
++            s_flip_tick_seq = s_flip_req_seq - (s_fifo_flips_queued - r);
++        } else if (s_flip_direct_pending && s_flip_status == CELL_GCM_FLIP_STATUS_WAITING) {
++            s_flip_direct_pending = 0;
++            s_flip_tick_seq = s_flip_req_seq;
++            waiting = 1;
++        }
++    } else {
++        waiting = s_flip_status == CELL_GCM_FLIP_STATUS_WAITING && gcm_flip_executed_take();
++        if (waiting) s_flip_tick_seq = s_flip_req_seq;
++    }
+     FLIP_UNLOCK();
+     if (waiting) GCM_PENDING_SET(2);
++    if (waiting && PS3_FT_ON()) { const uint64_t _t = ps3_ft_now(); ps3_ft_span(19, 0, 0, 0, _t, _t); }
++    return waiting;
++}
++void cellGcmTickFlip(void) { (void)cellGcmTickFlipReport(); }
++int cellGcm_flip_outstanding(void) { return s_fifo_flips_reached != s_fifo_flips_completed; }
++void cellGcm_flip_debug(void)
++{
++    fprintf(stderr, "[flipdbg] status=%d reached=%u completed=%u queued=%u direct=%d req=%u tick=%u\n",
++            (int)s_flip_status, s_fifo_flips_reached, s_fifo_flips_completed, s_fifo_flips_queued,
++            (int)s_flip_direct_pending, (unsigned)s_flip_req_seq, (unsigned)s_flip_tick_seq);
+ }
+ 
+ /* Drain the game's GCM FIFO into the RSX backend. Called from the present thread
+@@ -1595,6 +1644,7 @@ static void gcm_ref_push_at(u32 v, u32 getoff)
+     }
+     s_ref_q[t % GCM_REF_QLEN] = v;
+     s_ref_qtail = t + 1;
++    if (PS3_FT_ON()) { const uint64_t _t = ps3_ft_now(); ps3_ft_span(20, 0, v, getoff, _t, _t); }
+ }
+ 
+ /* Global fence-publication counter: lets the lwmutex convoy trace correlate a
+@@ -1626,6 +1676,7 @@ static void gcm_ref_publish_one(void)
+                 s_ref_q[h % GCM_REF_QLEN], vm_read32(GCM_CONTROL_GUEST_ADDR + 8)); } }
+     s_ref_qhead = h + 1;
+     g_gcm_ref_pub_count++;
++    if (PS3_FT_ON()) { const uint64_t _t = ps3_ft_now(); ps3_ft_span(21, 0, s_ref_q[h % GCM_REF_QLEN], 0, _t, _t); }
+ }
+ 
+ /* Read-driven fence publication. cellGcmFinish / FIFO-space waits spin-read the
+@@ -1731,7 +1782,8 @@ static void gcm_rsx_process_fifo_unlocked(void)
+     { static unsigned _n = 0; static unsigned long long _t0 = 0;
+       extern unsigned long long ps3_ms_now(void);
+       _n++;
+-      if (getenv("GCM_RATE")) {
++      static int s_rate = -1; if (s_rate < 0) s_rate = getenv("GCM_RATE") ? 1 : 0;
++      if (s_rate) {
+           unsigned long long now = ps3_ms_now();
+           if (_t0 == 0) _t0 = now;
+           if (now - _t0 >= 2000) {
+@@ -1772,7 +1824,8 @@ static void gcm_rsx_process_fifo_unlocked(void)
+      * once at init; if the title repoints gCellGcmCurrentContext at a buffer of
+      * its own, every field below moves with it and the FIFO the runtime walks
+      * stops being the one the title fills. Reported on change, not per tick. */
+-    if (getenv("GCM_CTXDBG") && s_gcm_ctx_out_ea) {
++    static int s_ctxdbg = -1; if (s_ctxdbg < 0) s_ctxdbg = getenv("GCM_CTXDBG") ? 1 : 0;
++    if (s_ctxdbg && s_gcm_ctx_out_ea) {
+         static u32 last_ptr = 0xFFFFFFFFu, last_cur = 0xFFFFFFFFu;
+         u32 ptr = vm_read32(s_gcm_ctx_out_ea);
+         u32 cur = ptr ? vm_read32(ptr + 0x8) : 0;
+@@ -1792,7 +1845,8 @@ static void gcm_rsx_process_fifo_unlocked(void)
+     static int s_drain_every = -1;
+     if (s_drain_every < 0) { const char* e = getenv("GCM_DRAINDBG_EVERY");
+                              s_drain_every = (e && atoi(e) > 0) ? atoi(e) : 60; }
+-    if (getenv("GCM_DRAINDBG")) {
++    static int c_dd = -1;
++    if (gcm_env_flag("GCM_DRAINDBG", &c_dd)) {
+         static int n = 0;
+         if (n++ % s_drain_every == 0)
+             printf("[DRAIN] getoff=%08X put=%08X ref=%08X ctx.current=%08X\n",
+@@ -1805,7 +1859,7 @@ static void gcm_rsx_process_fifo_unlocked(void)
+      * two very different causes -- we missed the command, or it was never
+      * submitted -- and only a direct scan of the ring separates them. */
+     { static int scanned = 0;
+-      if (!scanned && getenv("GCM_SCANREF") && put >= 0x19F0) { scanned = 1;
++      static int c_sr = -1; if (!scanned && gcm_env_flag("GCM_SCANREF", &c_sr) && put >= 0x19F0) { scanned = 1;
+         unsigned found = 0;
+         for (u32 io = 0; io + 8 <= put; io += 4) {
+             u32 ea = gcm_io2ea(io); if (!ea) continue;
+@@ -2403,7 +2457,8 @@ static void gcm_rsx_process_fifo_unlocked(void)
+      * per tick (gcm_ref_push/gcm_ref_publish_one above) so every SET_REFERENCE
+      * value stays observable to equality-waiters. The wrap recycle path polls
+      * the drained EA. */
+-    if (getenv("GCM_DRAINDBG")) {
++    static int c_dd2 = -1;
++    if (gcm_env_flag("GCM_DRAINDBG", &c_dd2)) {
+         static int n2 = 0;
+         if (n2++ % s_drain_every == 0)
+             fprintf(stderr, "[DRAINEND] %s: %08X -> %08X (%u bytes), put=%08X\n",
+diff --git a/libs/video/cellGcmSys.h b/libs/video/cellGcmSys.h
+index eab83e1..2255d31 100644
+--- a/libs/video/cellGcmSys.h
++++ b/libs/video/cellGcmSys.h
+@@ -291,6 +291,7 @@ void cellGcmSetVBlankHandler(CellGcmVBlankHandler handler);
+  * title-screen state machine from the VBlank handler. */
+ void cellGcmTickVBlank(void);
+ void cellGcmTickFlip(void);
++int  cellGcmTickFlipReport(void);
+ 
+ /* NID: 0xF9BFCDA3 */
+ void cellGcmSetSecondVHandler(CellGcmSecondVHandler handler);
+diff --git a/libs/video/cellVideoOut.c b/libs/video/cellVideoOut.c
+index c67a6ea..a71b142 100644
+--- a/libs/video/cellVideoOut.c
++++ b/libs/video/cellVideoOut.c
+@@ -5,6 +5,7 @@
+  * Defaults to 1280x720 (720p).
+  */
+ 
++#include "../../runtime/ps3_log.h"
+ #include "cellVideoOut.h"
+ #include "ps3emu/endian.h"
+ #include "../../runtime/ppu/ppu_memory.h"   /* vm_base (guest mem) */
+@@ -76,7 +77,7 @@ static void get_resolution_wh(u32 resId, u16* w, u16* h)
+ 
+ s32 cellVideoOutGetState(u32 videoOut, u32 deviceIndex, CellVideoOutState* state)
+ {
+-    printf("[cellVideoOut] GetState(videoOut=%u, deviceIndex=%u)\n",
++    if (ps3_log_verbose()) printf("[cellVideoOut] GetState(videoOut=%u, deviceIndex=%u)\n",
+            videoOut, deviceIndex);
+ 
+     if (!state)
+diff --git a/libs/video/rsx_draw_engine.c b/libs/video/rsx_draw_engine.c
+index f99986b..7c8c8f8 100644
+--- a/libs/video/rsx_draw_engine.c
++++ b/libs/video/rsx_draw_engine.c
+@@ -1,3 +1,4 @@
++#include <math.h>
+ /*
+  * ps3recomp - platform-neutral RSX draw engine (see rsx_draw_engine.h)
+  *
+@@ -24,6 +25,55 @@
+ #include <time.h>
+ #include "ps3emu/log_first.h"
+ 
++/* PS3RECOMP_VK_STATS=1: onde vai o tempo de CPU de cada draw (port Bomberman).
++ * Relógio monotônico em ns; resumo a cada 2 s no log. */
++#ifdef _WIN32
++#include <windows.h>
++static double eng_now_us(void)
++{
++    static double inv = 0.0;
++    LARGE_INTEGER c;
++    if (inv == 0.0) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); inv = 1e6 / (double)f.QuadPart; }
++    QueryPerformanceCounter(&c);
++    return (double)c.QuadPart * inv;
++}
++#else
++static double eng_now_us(void)
++{
++    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
++    return ts.tv_sec * 1e6 + ts.tv_nsec / 1e3;
++}
++#endif
++static int eng_prof_on(void)
++{
++    static int on = -1;
++    if (on < 0) { const char* e = getenv("PS3RECOMP_VK_STATS"); on = e && e[0] == '1'; }
++    return on;
++}
++enum { EP_FETCH, EP_STATE, EP_PIPE, EP_TEX, EP_CONST, EP_BACKEND, EP_AFTER, EP_N };
++static double s_ep[EP_N], s_ep_t0;
++static double s_fx[6]; static unsigned long long s_fx_refs;
++static unsigned long long s_ep_draws, s_ep_verts;
++static void eng_prof_report(void)
++{
++    const double now = eng_now_us();
++    if (s_ep_t0 == 0.0) { s_ep_t0 = now; return; }
++    if (now - s_ep_t0 < 2e6) return;
++    const double sec = (now - s_ep_t0) / 1e6;
++    fprintf(stderr, "[rsx engine] CPU dos draws (ms/s): fetch %.0f | estado %.0f | pipeline %.0f | "
++            "texturas %.0f | constantes %.0f | backend %.0f | pós %.0f  (%llu draws/s, %llu vértices/s)\n",
++            s_ep[EP_FETCH] / 1e3 / sec, s_ep[EP_STATE] / 1e3 / sec, s_ep[EP_PIPE] / 1e3 / sec,
++            s_ep[EP_TEX] / 1e3 / sec, s_ep[EP_CONST] / 1e3 / sec, s_ep[EP_BACKEND] / 1e3 / sec,
++            s_ep[EP_AFTER] / 1e3 / sec,
++            (unsigned long long)(s_ep_draws / sec), (unsigned long long)(s_ep_verts / sec));
++    fprintf(stderr, "[rsx engine] fetch (ms/s): layout %.0f | indices %.0f | remap %.0f | plano %.0f | decode %.0f  (%llu refs/s)\n",
++            s_fx[0] / 1e3 / sec, s_fx[1] / 1e3 / sec, s_fx[2] / 1e3 / sec, s_fx[3] / 1e3 / sec, s_fx[4] / 1e3 / sec,
++            (unsigned long long)(s_fx_refs / sec));
++    memset(s_fx, 0, sizeof s_fx); s_fx_refs = 0;
++    memset(s_ep, 0, sizeof s_ep); s_ep_draws = s_ep_verts = 0; s_ep_t0 = now;
++}
++#define EP_MARK(slot) do { if (prof) { const double _t = eng_now_us(); s_ep[slot] += _t - ep_t; ep_t = _t; } } while (0)
++
+ /* Guest memory and the RSX offset resolvers, declared the way every backend
+  * that reads guest data declares them (rsx_vertex_fetch.h). */
+ extern u8* vm_base;
+@@ -247,6 +297,21 @@ static const u8* eng_guest_ptr(void* user, u32 location, u32 offset,
+     return vm_base + ea;
+ }
+ 
++/* FNV de 8 em 8 bytes: para os blocos grandes de microcódigo, hasheados a
++ * cada draw (a versão byte a byte custava ~2 us por draw só no VP). */
++static u64 eng_hash_words(const void* data, u32 n, u64 hash)
++{
++    const u8* p = (const u8*)data;
++    u32 i = 0;
++    for (; i + 8 <= n; i += 8) {
++        u64 w; memcpy(&w, p + i, 8);
++        hash = (hash ^ w) * 1099511628211ull;
++        hash ^= hash >> 29;
++    }
++    for (; i < n; i++) hash = (hash ^ p[i]) * 1099511628211ull;
++    return hash;
++}
++
+ static u64 eng_fnv1a(const void* data, u32 n, u64 hash)
+ {
+     const u8* p = (const u8*)data;
+@@ -1463,10 +1528,20 @@ static void eng_vertex_layout(rsx_vertex_layout_plan* layout)
+     const u8* uc = NULL;
+     u32 instrs = 0;
+     if (eng_guest_programs(&uc, &instrs, NULL, NULL)) {
+-        rsx_vp_input_analysis analysis = { 0xFFFFu, 0 };
+-        if (rsx_vp_analyze_inputs(uc, instrs * 16u, &analysis) == (int)instrs &&
+-            analysis.exact && analysis.input_mask)
+-            mask = analysis.input_mask;
++        /* A análise do vertex program percorria o programa inteiro a CADA
++         * draw (~25 mil por segundo nas fases). Cache pelo conteúdo. */
++        static struct { u64 h; u32 n, mask; } s_vlc[64];
++        const u64 h = eng_hash_words(uc, instrs * 16u, 0xC2B2AE3D27D4EB4Full ^ instrs);
++        const u32 slot = (u32)(h ^ (h >> 32)) & 63u;
++        if (s_vlc[slot].h == h && s_vlc[slot].n == instrs && h) {
++            mask = s_vlc[slot].mask;
++        } else {
++            rsx_vp_input_analysis analysis = { 0xFFFFu, 0 };
++            if (rsx_vp_analyze_inputs(uc, instrs * 16u, &analysis) == (int)instrs &&
++                analysis.exact && analysis.input_mask)
++                mask = analysis.input_mask;
++            s_vlc[slot].h = h; s_vlc[slot].n = instrs; s_vlc[slot].mask = mask;
++        }
+     }
+     rsx_vertex_layout_plan_init(layout, mask);
+ }
+@@ -1633,7 +1708,23 @@ static u32 eng_pipeline_get(const rsx_vertex_layout_plan* layout,
+     const u32 vtex_mask = eng_vtex_mask();
+     rsx_fp_shadow_desc shadow[RSX_DSP_NUM_TEXTURES] = {{0}};
+     u32 shadow_mask = 0;
+-    const u32 sampled_units = fixed ? 0 : rsx_fp_texture_units(fp_uc, fp_size);
++    /* Análise do fragment program memoizada pelo conteúdo: unidades
++     * amostradas, hash estrutural e constantes inline só mudam quando os
++     * bytes do programa mudam. Antes eram 4-5 passadas pelo microcódigo (e um
++     * memset de 32 KB) em todo draw. */
++    enum { FPC_N = 128 };
++    static struct { u64 h; u32 size; u32 units; u64 shash; u32 nconst; u32 (*consts)[4]; } s_fpc[FPC_N];
++    static u32 s_fpc_next;
++    int fpc_i = -1;
++    u64 fp_content = 0;
++    if (!fixed) {
++        fp_content = eng_hash_words(fp_uc, fp_size, 0x9E3779B97F4A7C15ull ^ fp_size);
++        for (u32 i = 0; i < FPC_N; i++)
++            if (s_fpc[i].consts && s_fpc[i].h == fp_content && s_fpc[i].size == fp_size) { fpc_i = (int)i; break; }
++    }
++    const u32 sampled_units = fixed ? 0
++                            : fpc_i >= 0 ? s_fpc[fpc_i].units
++                            : rsx_fp_texture_units(fp_uc, fp_size);
+     for (u32 u = 0; u < RSX_DSP_NUM_TEXTURES; u++) {
+         if (!(sampled_units & (1u << u))) continue;
+         rsx_dsp_texture t;
+@@ -1647,7 +1738,9 @@ static u32 eng_pipeline_get(const rsx_vertex_layout_plan* layout,
+         rsx_dsp_texture t; rsx_dsp_get_texture(&g.rsx, u, &t);
+         if (t.enabled) gamma_masks[u] = rsx_texture_gamma_mask(t.format, t.remap, t.filter, t.wrap);
+     }
+-    const u32 gamma_units = fixed ? 0 : rsx_fp_texture_gamma_units(fp_uc, fp_size, gamma_masks);
++    u32 any_gamma = 0, any_expand = 0;
++    for (u32 u = 0; u < RSX_DSP_NUM_TEXTURES; ++u) any_gamma |= gamma_masks[u];
++    const u32 gamma_units = (fixed || !any_gamma) ? 0 : rsx_fp_texture_gamma_units(fp_uc, fp_size, gamma_masks);
+     for (u32 u = 0; u < RSX_DSP_NUM_TEXTURES; ++u)
+         if (!(gamma_units & (1u << u))) gamma_masks[u] = 0;
+     /* Texture sign expansion: SET_TEXTURE_ADDRESS's UNSIGNED_REMAP_BIASED
+@@ -1658,7 +1751,8 @@ static u32 eng_pipeline_get(const rsx_vertex_layout_plan* layout,
+         rsx_dsp_texture t; rsx_dsp_get_texture(&g.rsx, u, &t);
+         if (t.enabled) expand_masks[u] = rsx_texture_expand_mask(t.format, t.remap, t.filter, t.wrap);
+     }
+-    const u32 expand_units = fixed ? 0 : rsx_fp_texture_expand_units(fp_uc, fp_size, expand_masks);
++    for (u32 u = 0; u < RSX_DSP_NUM_TEXTURES; ++u) any_expand |= expand_masks[u];
++    const u32 expand_units = (fixed || !any_expand) ? 0 : rsx_fp_texture_expand_units(fp_uc, fp_size, expand_masks);
+     for (u32 u = 0; u < RSX_DSP_NUM_TEXTURES; ++u)
+         if (!(expand_units & (1u << u))) expand_masks[u] = 0;
+ 
+@@ -1671,9 +1765,30 @@ static u32 eng_pipeline_get(const rsx_vertex_layout_plan* layout,
+         if (!(unnorm_mask & (1u << u)))
+             unnorm_dim[u][0] = unnorm_dim[u][1] = 0;
+ 
+-    memset(&g.fp_constants, 0, sizeof g.fp_constants);
+-    if (!fixed && rsx_fp_collect_constants(fp_uc, fp_size, &g.fp_constants) < 0)
+-        return 0;
++    u64 fp_shash = 0;
++    if (fixed) {
++        g.fp_constants.count = 0;
++    } else if (fpc_i >= 0) {
++        g.fp_constants.count = s_fpc[fpc_i].nconst;
++        if (s_fpc[fpc_i].nconst)
++            memcpy(g.fp_constants.values, s_fpc[fpc_i].consts, s_fpc[fpc_i].nconst * 16u);
++        fp_shash = s_fpc[fpc_i].shash;
++    } else {
++        memset(&g.fp_constants, 0, sizeof g.fp_constants);
++        if (rsx_fp_collect_constants(fp_uc, fp_size, &g.fp_constants) < 0)
++            return 0;
++        fp_shash = rsx_fp_structural_hash(fp_uc, fp_size, 1469598103934665603ull);
++        if (!fp_shash) return 0;
++        const u32 k = s_fpc_next++ % FPC_N;
++        free(s_fpc[k].consts);
++        s_fpc[k].consts = (u32 (*)[4])malloc((g.fp_constants.count ? g.fp_constants.count : 1u) * 16u);
++        if (s_fpc[k].consts) {
++            s_fpc[k].h = fp_content; s_fpc[k].size = fp_size; s_fpc[k].units = sampled_units;
++            s_fpc[k].shash = fp_shash; s_fpc[k].nconst = g.fp_constants.count;
++            if (g.fp_constants.count)
++                memcpy(s_fpc[k].consts, g.fp_constants.values, g.fp_constants.count * 16u);
++        }
++    }
+ 
+     /* Identity: the vertex program's own bytes, the fragment program's
+      * STRUCTURE (its inline constants are hoisted into the buffered block, so
+@@ -1685,9 +1800,8 @@ static u32 eng_pipeline_get(const rsx_vertex_layout_plan* layout,
+         static const u32 fixed_tag = 0x4E464958u;   /* "XIFN" */
+         key = eng_fnv1a(&fixed_tag, sizeof fixed_tag, key);
+     } else {
+-        key = eng_fnv1a(vp_uc, vp_instrs * 16u, key);
+-        key = rsx_fp_structural_hash(fp_uc, fp_size, key);
+-        if (!key) return 0;
++        key = eng_hash_words(vp_uc, vp_instrs * 16u, key);
++        key = eng_fnv1a(&fp_shash, sizeof fp_shash, key);
+         const u32 fp_ctrl_key = fp_ctrl & 0x4Eu; /* colour width and fragment depth export */
+         key = eng_fnv1a(&fp_ctrl_key, sizeof fp_ctrl_key, key);
+         if (srgb_output) key = eng_fnv1a(&srgb_output, sizeof srgb_output, key);
+@@ -1859,6 +1973,7 @@ static int dc_reserve_indices(u32 count)
+  * rsx_live_draw.c's fetch_batches_hoisted (4165-4292). */
+ static void dc_fetch(const rsx_vertex_layout_plan* layout, int allow_remap)
+ {
++    const double fx_t0 = eng_prof_on() ? eng_now_us() : 0.0;
+     if (dc.n_immediate) {
+         dc.n_source_refs = dc.n_immediate;
+         if (!dc_reserve_verts((u64)dc.n_immediate * layout->stride)) {
+@@ -1913,6 +2028,10 @@ static void dc_fetch(const rsx_vertex_layout_plan* layout, int allow_remap)
+         }
+     }
+     if (!dc.fetch_ok) return;
++    const int fxp = eng_prof_on();
++    double fx_t = fxp ? eng_now_us() : 0.0;
++#define FX_MARK(i) do { if (fxp) { const double _t = eng_now_us(); s_fx[i] += _t - fx_t; fx_t = _t; } } while (0)
++    if (fxp) { s_fx[1] += fx_t - fx_t0; s_fx_refs += dc.n_refs; }
+ 
+     dc.n_source_refs = dc.n_refs;
+     /* Only a topology this engine rebuilds through an index buffer may share
+@@ -1926,6 +2045,7 @@ static void dc_fetch(const rsx_vertex_layout_plan* layout, int allow_remap)
+         }
+     }
+ 
++    FX_MARK(2);
+     dc.layout = *layout;
+     rsx_vertex_fetch_plan_init(&dc.fetch_plan, &g.rsx, layout, eng_guest_ptr, NULL);
+     rsx_vertex_fetch_plan_set_inline(&dc.fetch_plan, &g.rsx, dc.inl, dc.inl_bytes);
+@@ -1934,6 +2054,32 @@ static void dc_fetch(const rsx_vertex_layout_plan* layout, int allow_remap)
+         dc.fetch_ok = 0;
+         return;
+     }
++    FX_MARK(3);
++    static int s_fast = -1;
++    if (s_fast < 0) { const char* e = getenv("RSX_FETCH_SLOW"); s_fast = !(e && *e == '1'); }
++    if (s_fast && rsx_vertex_fetch_all_fast(&dc.fetch_plan, dc.refs, dc.n_refs, dc.verts)) {
++        dc.n_verts = dc.n_refs;
++        FX_MARK(4);
++        static int s_chk = -1;
++        if (s_chk < 0) { const char* e = getenv("RSX_FETCH_CHECK"); s_chk = e && *e == '1'; }
++        if (s_chk && layout->stride) {
++            static unsigned long long nd = 0, bad = 0;
++            u8 tmp[16 * 16];
++            for (u32 i = 0; i < dc.n_refs; i++) {
++                if (!rsx_vertex_fetch_one(&dc.fetch_plan, &dc.refs[i], tmp)) { bad++; break; }
++                const u8* f = dc.verts + (u64)i * layout->stride;
++                int diff = 0;
++                for (u32 k = 0; k < layout->stride / 4; k++) {
++                    float a, b; memcpy(&a, f + k * 4, 4); memcpy(&b, tmp + k * 4, 4);
++                    if (a != b && !(a != a && b != b) && fabsf(a - b) > 1e-6f * (fabsf(b) + 1.0f)) diff = 1;
++                }
++                if (diff) { bad++; break; }
++            }
++            if ((++nd % 20000) == 0 || (bad && bad < 5))
++                fprintf(stderr, "[fetch-check] draws %llu, divergentes %llu\n", nd, bad);
++        }
++        return;
++    }
+     for (u32 i = 0; i < dc.n_refs; i++) {
+         u8* dst = layout->stride ? dc.verts + (u64)i * layout->stride : NULL;
+         if (!rsx_vertex_fetch_one(&dc.fetch_plan, &dc.refs[i], dst)) {
+@@ -2554,9 +2700,14 @@ static void sink_end(void* user, const rsx_dispatch* r)
+         if (topology == RSX_TOPOLOGY_UNSUPPORTED) return;
+     }
+ 
++    const int prof = eng_prof_on();
++    double ep_t = prof ? eng_now_us() : 0.0;
+     rsx_vertex_layout_plan layout;
+     eng_vertex_layout(&layout);
++    if (prof) { const double _t = eng_now_us(); s_fx[0] += _t - ep_t; }
+     dc_fetch(&layout, rebuild);
++    EP_MARK(EP_FETCH);
++    if (prof) { s_ep_draws++; s_ep_verts += dc.n_verts; eng_prof_report(); }
+     if (!dc.n_verts || !dc.fetch_ok) return;
+ 
+     int indexed = 0;
+@@ -2584,6 +2735,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
+     rsx_dsp_get_viewport(&g.rsx, &vp);
+     const u32 zslot = eng_zdepth_get(sf.zeta_location, sf.zeta_offset,
+                                      sf.clip_w, sf.clip_h);
++    EP_MARK(EP_STATE);
+ 
+     /* A guest program pair that will not translate has no fallback: the draw
+      * is dropped, as the reference engine drops it. Substituting the built-in
+@@ -2596,6 +2748,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
+                                           eng_surface_format(sf.color_format),
+                                           n_targets, &pipeline_is_fixed, &tex_used,
+                                           &fp_hash);
++    EP_MARK(EP_PIPE);
+     if (!pipeline) return;
+     if (fp_hash && eng_debug_fp(fp_hash, pipeline)) return;
+ 
+@@ -2614,6 +2767,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
+     if (tex_mask == ENG_INVALID) return;
+     const u32 vtex_mask = sink_bind_vertex_textures(eng_vtex_mask(), vtextures,
+                                                     vsamplers);
++    EP_MARK(EP_TEX);
+ 
+     if (indexed) {
+         if (!dc_reserve_indices(n_draw)) return;
+@@ -2662,6 +2816,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
+       alpha[1] = alpha[2] = alpha[3] = 0.0f; }
+ 
+     pd_note(targets, n_targets, zslot, &rs, pipeline, tex_mask);
++    EP_MARK(EP_CONST);
+ 
+     /* The depth attachment is cleared the first time it is bound, so a title
+      * that never clears its shadow zeta still tests against something. */
+@@ -2728,12 +2883,14 @@ static void sink_end(void* user, const rsx_dispatch* r)
+      * the test hook means: a draw through the built-in pair is a draw, not
+      * evidence that the decompile-translate-compile path worked. */
+     if (!pipeline_is_fixed) g.guest_draws++;
++    EP_MARK(EP_BACKEND);
+ 
+     if (rs.color_mask) eng_surfaces_wrote(targets, n_targets);
+     if (zslot != ENG_INVALID && rs.depth_test && rs.depth_write) {
+         g.zdepths[zslot].had_write = 1;
+         eng_zdepth_wrote(zslot, &sf);
+     }
++    EP_MARK(EP_AFTER);
+ }
+ 
+ static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
+diff --git a/libs/video/rsx_vertex_compact.c b/libs/video/rsx_vertex_compact.c
+index 7fa5f31..6283d55 100644
+--- a/libs/video/rsx_vertex_compact.c
++++ b/libs/video/rsx_vertex_compact.c
+@@ -38,6 +38,23 @@ int rsx_vertex_decode_element(
+ {
+     if (!source || !out)
+         return 0;
++    /* Caminhos rápidos para os formatos mais comuns (port Bomberman: a busca
++     * de vértices era o maior custo de CPU por draw). Mesmo resultado do laço
++     * genérico abaixo. */
++    if (type == RSX_VTX_TYPE_FLOAT && size >= 1 && size <= 4) {
++        u32 w[4] = { 0, 0, 0, 0x3F800000u };
++        for (u32 c = 0; c < size; c++) {
++            u32 v; memcpy(&v, source + c * 4, 4);
++            w[c] = __builtin_bswap32(v);
++        }
++        memcpy(out, w, 16);
++        return 1;
++    }
++    if (type == RSX_VTX_TYPE_UNORM8 && size == 4) {
++        out[0] = source[0] / 255.0f; out[1] = source[1] / 255.0f;
++        out[2] = source[2] / 255.0f; out[3] = source[3] / 255.0f;
++        return 1;
++    }
+     out[0] = out[1] = out[2] = 0.0f;
+     out[3] = 1.0f;
+     for (u32 component = 0; component < size && component < 4;
+@@ -310,6 +327,87 @@ int rsx_vertex_fetch_one(
+     return 1;
+ }
+ 
++/* Caminho rápido do Bomberman: decodifica coluna a coluna (um atributo para
++ * todos os vértices) em vez de vértice a vértice, com laços especializados por
++ * formato. Só quando todo atributo é por-vértice (frequência 0/1) e tem a
++ * faixa estável inteira mapeada; senão devolve 0 e o chamador usa o caminho
++ * genérico (rsx_vertex_fetch_one), que tem a mesma saída. */
++int rsx_vertex_fetch_all_fast(
++    const rsx_vertex_fetch_plan* plan, const rsx_vertex_ref* refs, u32 count,
++    u8* out)
++{
++    if (!plan || !refs || !count || !out || !plan->layout.stride)
++        return 0;
++    const u32 ostride = plan->layout.stride;
++    for (u32 slot = 0; slot < plan->layout.count; slot++) {
++        const u32 attr = plan->layout.attrs[slot];
++        const rsx_vertex_fetch_attr* f = &plan->attr[attr];
++        if (!f->desc.type || !f->desc.size) continue;
++        if (f->desc.frequency > 1 || !f->stable_base) return 0;
++    }
++    for (u32 slot = 0; slot < plan->layout.count; slot++) {
++        const u32 attr = plan->layout.attrs[slot];
++        const rsx_vertex_fetch_attr* f = &plan->attr[attr];
++        u8* o = out + slot * 16u;
++        if (!f->desc.type || !f->desc.size) {
++            for (u32 i = 0; i < count; i++, o += ostride) memcpy(o, f->default_value, 16);
++            continue;
++        }
++        const u8* base = f->stable_base;
++        const u32 first = f->stable_first, last = f->stable_last, st = f->stride;
++        const u32 type = f->desc.type, size = f->desc.size;
++        #define ELEM_SRC(i) ({ const u32 _e = (refs[i].vertex_id + refs[i].base_index) & 0x000FFFFFu; \
++                               (_e < first || _e > last) ? (const u8*)0 : base + (u64)(_e - first) * st; })
++        if (type == RSX_VTX_TYPE_FLOAT && size == 3) {
++            for (u32 i = 0; i < count; i++, o += ostride) {
++                const u8* src = ELEM_SRC(i);
++                if (!src) return 0;
++                u32 w[4]; memcpy(w, src, 12);
++                w[0] = __builtin_bswap32(w[0]); w[1] = __builtin_bswap32(w[1]);
++                w[2] = __builtin_bswap32(w[2]); w[3] = 0x3F800000u;
++                memcpy(o, w, 16);
++            }
++        } else if (type == RSX_VTX_TYPE_FLOAT && size == 2) {
++            for (u32 i = 0; i < count; i++, o += ostride) {
++                const u8* src = ELEM_SRC(i);
++                if (!src) return 0;
++                u32 w[4]; memcpy(w, src, 8);
++                w[0] = __builtin_bswap32(w[0]); w[1] = __builtin_bswap32(w[1]);
++                w[2] = 0; w[3] = 0x3F800000u;
++                memcpy(o, w, 16);
++            }
++        } else if (type == RSX_VTX_TYPE_FLOAT && size == 4) {
++            for (u32 i = 0; i < count; i++, o += ostride) {
++                const u8* src = ELEM_SRC(i);
++                if (!src) return 0;
++                u32 w[4]; memcpy(w, src, 16);
++                w[0] = __builtin_bswap32(w[0]); w[1] = __builtin_bswap32(w[1]);
++                w[2] = __builtin_bswap32(w[2]); w[3] = __builtin_bswap32(w[3]);
++                memcpy(o, w, 16);
++            }
++        } else if (type == RSX_VTX_TYPE_UNORM8 && size == 4) {
++            const float k = 1.0f / 255.0f;
++            for (u32 i = 0; i < count; i++, o += ostride) {
++                const u8* src = ELEM_SRC(i);
++                if (!src) return 0;
++                float v[4] = { src[0] * k, src[1] * k, src[2] * k, src[3] * k };
++                memcpy(o, v, 16);
++            }
++        } else {
++            for (u32 i = 0; i < count; i++, o += ostride) {
++                const u8* src = ELEM_SRC(i);
++                if (!src) return 0;
++                if (!rsx_vertex_decode_element(type, size, src, (float*)o)) {
++                    if (attr == 0) return 0;
++                    memcpy(o, f->default_value, 16);
++                }
++            }
++        }
++        #undef ELEM_SRC
++    }
++    return 1;
++}
++
+ static u64 rsx_vertex_remap_hash(u64 value)
+ {
+     value ^= value >> 33;
+@@ -367,6 +465,59 @@ int rsx_vertex_remap_build(
+         }
+     }
+ 
++    /* Faixa pequena e base comum: tabela direta, mesma numeração (ordem da
++     * primeira ocorrência) que o hash abaixo. */
++    {
++        const u32 b0 = refs[0].base_index;
++        u32 lo = refs[0].vertex_id, hi = lo, same = 1;
++        for (u32 i = 1; i < count; i++) {
++            const u32 v = refs[i].vertex_id;
++            if (v < lo) lo = v;
++            if (v > hi) hi = v;
++            same &= refs[i].base_index == b0;
++        }
++        const u64 range = (u64)hi - lo + 1u;
++        if (same && range <= (u64)(count * 4u > 4096u ? count * 4u : 4096u) && range <= (1u << 22)) {
++            if (range > remap->direct_cap) {
++                u32 cap = remap->direct_cap ? remap->direct_cap : 4096u;
++                while (cap < range) cap *= 2u;
++                u32* nv = (u32*)realloc(remap->direct_val, (size_t)cap * sizeof(u32));
++                if (nv) remap->direct_val = nv;
++                u32* ng = nv ? (u32*)realloc(remap->direct_gen, (size_t)cap * sizeof(u32)) : NULL;
++                if (ng) {
++                    remap->direct_gen = ng;
++                    memset(ng, 0, (size_t)cap * sizeof(u32));
++                    remap->direct_cap = cap;
++                    remap->direct_generation = 0;
++                }
++            }
++            if (range <= remap->direct_cap) {
++                u32 g = ++remap->direct_generation;
++                if (!g) {
++                    memset(remap->direct_gen, 0, (size_t)remap->direct_cap * sizeof(u32));
++                    g = remap->direct_generation = 1u;
++                }
++                u32* const val = remap->direct_val;
++                u32* const gen = remap->direct_gen;
++                u32 unique = 0;
++                for (u32 occurrence = 0; occurrence < count; occurrence++) {
++                    const rsx_vertex_ref ref = refs[occurrence];
++                    const u32 d = ref.vertex_id - lo;
++                    if (gen[d] != g) {
++                        gen[d] = g;
++                        val[d] = unique;
++                        refs[unique] = ref;
++                        remap->occurrence_to_unique[occurrence] = unique++;
++                    } else {
++                        remap->occurrence_to_unique[occurrence] = val[d];
++                    }
++                }
++                *unique_count = unique;
++                return 1;
++            }
++        }
++    }
++
+     u32 unique = 0;
+     const u32 mask = remap->slot_capacity - 1u;
+     for (u32 occurrence = 0; occurrence < count; occurrence++) {
+@@ -408,6 +559,8 @@ void rsx_vertex_remap_destroy(rsx_vertex_remap* remap)
+         return;
+     free(remap->occurrence_to_unique);
+     free(remap->slots);
++    free(remap->direct_val);
++    free(remap->direct_gen);
+     memset(remap, 0, sizeof(*remap));
+ }
+ 
+diff --git a/libs/video/rsx_vertex_compact.h b/libs/video/rsx_vertex_compact.h
+index ad21361..5682658 100644
+--- a/libs/video/rsx_vertex_compact.h
++++ b/libs/video/rsx_vertex_compact.h
+@@ -44,6 +44,12 @@ typedef struct rsx_vertex_remap {
+     rsx_vertex_remap_slot* slots;
+     u32 slot_capacity;
+     u32 generation;
++    /* Tabela direta (port Bomberman): quando os índices de um draw cobrem
++     * uma faixa pequena, dispensa o hash. */
++    u32* direct_val;
++    u32* direct_gen;
++    u32 direct_cap;
++    u32 direct_generation;
+ } rsx_vertex_remap;
+ 
+ typedef struct rsx_vertex_fetch_attr {
+@@ -119,6 +125,9 @@ int rsx_vertex_fetch_one(
+ /* Collapse repeated (vertex_id, base_index) references in first-use order.
+  * refs is rewritten in place with the unique prefix.  The occurrence map
+  * remains valid until the next call using the same remap object. */
++int rsx_vertex_fetch_all_fast(
++    const rsx_vertex_fetch_plan* plan, const rsx_vertex_ref* refs, u32 count,
++    u8* out);
+ int rsx_vertex_remap_build(
+     rsx_vertex_remap* remap, rsx_vertex_ref* refs, u32 count,
+     u32* unique_count);
+diff --git a/libs/video/rsx_vulkan_backend.c b/libs/video/rsx_vulkan_backend.c
+index b22e08f..856343d 100644
+--- a/libs/video/rsx_vulkan_backend.c
++++ b/libs/video/rsx_vulkan_backend.c
+@@ -38,7 +38,7 @@
+  * with spaces.
+  */
+ 
+-#ifndef _WIN32
++#if !defined(_WIN32) || defined(PS3RECOMP_RSX_VULKAN)
+ 
+ #define VK_NO_PROTOTYPES
+ #include <vulkan/vulkan.h>
+@@ -58,8 +58,26 @@
+ #include <SDL2/SDL.h>
+ #include <SDL2/SDL_vulkan.h>
+ 
++#ifdef _WIN32
++/* Windows: vulkan-1.dll via LoadLibrary e mutexes sobre CRITICAL_SECTION --
++ * o mesmo contrato que dlopen/pthread oferecem ao resto do arquivo. */
++#  define WIN32_LEAN_AND_MEAN
++#  include <windows.h>
++#  define RTLD_NOW   0
++#  define RTLD_LOCAL 0
++static void* dlopen(const char* n, int f) { (void)f; return (void*)LoadLibraryA(n); }
++static void* dlsym(void* h, const char* n) { return (void*)GetProcAddress((HMODULE)h, n); }
++static int   dlclose(void* h) { return FreeLibrary((HMODULE)h) ? 0 : -1; }
++static const char* dlerror(void) { return "LoadLibrary falhou (driver Vulkan instalado?)"; }
++typedef CRITICAL_SECTION pthread_mutex_t;
++static int pthread_mutex_init(pthread_mutex_t* m, void* a) { (void)a; InitializeCriticalSection(m); return 0; }
++static int pthread_mutex_lock(pthread_mutex_t* m)    { EnterCriticalSection(m); return 0; }
++static int pthread_mutex_unlock(pthread_mutex_t* m)  { LeaveCriticalSection(m); return 0; }
++static int pthread_mutex_destroy(pthread_mutex_t* m) { DeleteCriticalSection(m); return 0; }
++#else
+ #include <dlfcn.h>
+ #include <pthread.h>
++#endif
+ #include <stddef.h>
+ #include <stdint.h>
+ #include <stdio.h>
+@@ -90,7 +108,7 @@
+     X(vkCreateShaderModule) X(vkDestroyShaderModule) \
+     X(vkCreateDescriptorSetLayout) X(vkDestroyDescriptorSetLayout) \
+     X(vkCreateDescriptorPool) X(vkDestroyDescriptorPool) \
+-    X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) \
++    X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) X(vkResetDescriptorPool) \
+     X(vkCreatePipelineLayout) X(vkDestroyPipelineLayout) \
+     X(vkCreateGraphicsPipelines) X(vkDestroyPipeline) \
+     X(vkCreateSampler) X(vkDestroySampler) \
+@@ -106,7 +124,8 @@
+  * headless run never depends on a driver that can present. */
+ #define VK_WSI_INSTANCE_FNS(X) \
+     X(vkDestroySurfaceKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) \
+-    X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR)
++    X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) \
++    X(vkGetPhysicalDeviceSurfacePresentModesKHR)
+ #define VK_WSI_DEVICE_FNS(X) \
+     X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
+     X(vkAcquireNextImageKHR) X(vkQueuePresentKHR)
+@@ -234,6 +253,37 @@ typedef struct vk_state {
+     u32              presented;
+     const char*      dump_path;
+     u32              dump_every;       /* write every nth presented frame */
++
++    /* Lote (port Bomberman): as operações vão para um só command buffer, que
++     * só é submetido -- e esperado -- quando algo precisa do resultado (uma
++     * leitura, um present, um recurso a destruir). Antes cada draw era um
++     * submit + espera, o que deixava a GPU parada entre centenas de idas e
++     * voltas por frame. Vértices, índices, constantes e staging de texturas
++     * do lote vivem na arena; os descriptor sets saem de um pool zerado a
++     * cada espera. */
++    int              recording;
++    int              batch_inflight;  /* lote submetido sem espera (fim de frame) */
++    /* Render pass do engine deixado aberto entre draws consecutivos no mesmo
++     * framebuffer (sem barreira entre eles); qualquer outra operação o fecha. */
++    VkRenderPass     open_rp;
++    VkFramebuffer    open_fb;
++    vk_buffer        arena;
++    VkDeviceSize     arena_used;
++    VkDeviceSize     ubo_align;
++    VkDescriptorPool batch_pool;
++    u32              batch_sets, batch_cap;
++    vk_buffer        deferred[64];
++    u32              deferred_count;
++    int              need_readback;   /* PS3RECOMP_VK_READBACK: todo frame na CPU */
++    int              rb_this;         /* este present copia o frame para a CPU */
++    VkFormat         sc_format;
++    /* Contador de FPS (PS3RECOMP_VK_FPS) e estatísticas (PS3RECOMP_VK_STATS) */
++    int              fps_overlay, stats;
++    u32              fps_frames, fps_shown;
++    double           fps_t0;
++    u32              st_frames, st_draws, st_flushes;
++    double           st_wait_ms, st_t0, st_present_ms;
++    vk_buffer        overlay;
+ } vk_state;
+ 
+ static vk_state s_vk;
+@@ -250,7 +300,11 @@ static vk_state s_vk;
+  * -------------------------------------------------------------------------*/
+ static int vk_load_library(void)
+ {
++#ifdef _WIN32
++    static const char* names[] = { "vulkan-1.dll" };
++#else
+     static const char* names[] = { "libvulkan.so.1", "libvulkan.so" };
++#endif
+     for (size_t i = 0; i < sizeof names / sizeof names[0] && !s_vk.lib; i++)
+         s_vk.lib = dlopen(names[i], RTLD_NOW | RTLD_LOCAL);
+     if (!s_vk.lib) {
+@@ -445,9 +499,25 @@ static int vk_create_image(vk_image* im, VkFormat fmt, u32 w, u32 h,
+ }
+ 
+ static void vk_present_wait_gpu(void);
++static int  vk_submit_and_wait(void);
++
++/* Trabalho gravado e ainda não submetido vai à GPU (e é esperado). */
++static void vk_batch_settle(void);
++static void vk_flush_pending(void)
++{
++    if (s_vk.recording) vk_submit_and_wait();
++    else if (s_vk.batch_inflight) vk_batch_settle();
++}
++
++static double vk_now_ms(void)
++{
++    return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
++}
+ 
+ static void vk_destroy_image(vk_image* im)
+ {
++    /* Nunca sob um lote pendente que ainda a usa. */
++    if (im->img || im->view) vk_flush_pending();
+     /* Never under a present's copy that may still read it. */
+     if (im->img) vk_present_wait_gpu();
+     if (im->view) pvkDestroyImageView(s_vk.device, im->view, NULL);
+@@ -490,6 +560,7 @@ static int vk_create_host_buffer(vk_buffer* b, VkDeviceSize size, VkBufferUsageF
+ 
+ static void vk_destroy_buffer(vk_buffer* b)
+ {
++    if (b->buf) vk_flush_pending();
+     if (b->ptr) pvkUnmapMemory(s_vk.device, b->mem);
+     if (b->buf) pvkDestroyBuffer(s_vk.device, b->buf, NULL);
+     if (b->mem) pvkFreeMemory(s_vk.device, b->mem, NULL);
+@@ -515,6 +586,14 @@ static void vk_invalidate(vk_buffer* b)
+  * -------------------------------------------------------------------------*/
+ static VkResult vk_queue_submit(const VkSubmitInfo* si, VkFence fence)
+ {
++    /* Perfil de CPU (PS3RECOMP_VK_NOGPU=1): grava tudo, mas submete só a
++     * fence -- a GPU não executa nada, o tempo que sobra é do lado da CPU. */
++    static int nogpu = -1;
++    if (nogpu < 0) { const char* e = getenv("PS3RECOMP_VK_NOGPU"); nogpu = e && e[0] == '1'; }
++    VkSubmitInfo empty;
++    if (nogpu && !si->waitSemaphoreCount && !si->signalSemaphoreCount) {
++        empty = *si; empty.commandBufferCount = 0; empty.pCommandBuffers = NULL; si = &empty;
++    }
+     pthread_mutex_lock(&s_vk.queue_mu);
+     const VkResult r = pvkQueueSubmit(s_vk.queue, 1, si, fence);
+     pthread_mutex_unlock(&s_vk.queue_mu);
+@@ -548,8 +627,55 @@ static void vk_cmd_after_everything(VkCommandBuffer cb)
+                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
+ }
+ 
++static void vk_batch_reset(void);
++
++/* Fim de frame: o lote vai para a GPU sem esperar -- a thread do RSX segue
++ * para o present e o próximo frame enquanto a GPU desenha. A arena, o pool
++ * de descriptors e o command buffer só são reaproveitados depois de
++ * vk_batch_settle (quem os usa de novo chama antes). */
++static void vk_submit_nowait(void)
++{
++    if (!s_vk.recording) return;
++    s_vk.recording = 0;
++    if (s_vk.open_rp) {
++        pvkCmdEndRenderPass(s_vk.cmd);
++        s_vk.open_rp = VK_NULL_HANDLE; s_vk.open_fb = VK_NULL_HANDLE;
++    }
++    VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
++                        .commandBufferCount = 1, .pCommandBuffers = &s_vk.cmd };
++    if (pvkEndCommandBuffer(s_vk.cmd) != VK_SUCCESS ||
++        pvkResetFences(s_vk.device, 1, &s_vk.fence) != VK_SUCCESS ||
++        vk_queue_submit(&si, s_vk.fence) != VK_SUCCESS) {
++        VK_LOG("async batch submit failed\n");
++        vk_batch_reset();
++        return;
++    }
++    s_vk.batch_inflight = 1;
++}
++
++static void vk_batch_settle(void)
++{
++    if (!s_vk.batch_inflight) return;
++    const double t0 = s_vk.stats ? vk_now_ms() : 0.0;
++    pvkWaitForFences(s_vk.device, 1, &s_vk.fence, VK_TRUE, UINT64_MAX);
++    if (s_vk.stats) { s_vk.st_flushes++; s_vk.st_wait_ms += vk_now_ms() - t0; }
++    s_vk.batch_inflight = 0;
++    vk_batch_reset();
++}
++
+ static int vk_begin(void)
+ {
++    if (s_vk.recording) {
++        if (s_vk.open_rp) {                     /* outra operação: fecha o pass */
++            pvkCmdEndRenderPass(s_vk.cmd);
++            s_vk.open_rp = VK_NULL_HANDLE; s_vk.open_fb = VK_NULL_HANDLE;
++        }
++        /* Continua o lote: a barreira dá a mesma ordem que a fronteira entre
++         * duas submissões dava. */
++        vk_cmd_after_everything(s_vk.cmd);
++        return 0;
++    }
++    vk_batch_settle();                      /* o command buffer pode estar em voo */
+     VK_CHECK(pvkResetCommandBuffer(s_vk.cmd, 0), "vkResetCommandBuffer");
+     VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                     .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+@@ -558,17 +684,91 @@ static int vk_begin(void)
+      * to draw over: order everything here after it. Set only by a present,
+      * which never runs alongside the walker's recording. */
+     if (s_vk.present_order) { vk_cmd_after_everything(s_vk.cmd); s_vk.present_order = 0; }
++    s_vk.recording = 1;
+     return 0;
+ }
+ 
+ static int vk_submit_and_wait(void)
+ {
+-    VK_CHECK(pvkEndCommandBuffer(s_vk.cmd), "vkEndCommandBuffer");
++    if (!s_vk.recording) return 0;          /* nada pendente */
++    s_vk.recording = 0;
++    if (s_vk.open_rp) {
++        pvkCmdEndRenderPass(s_vk.cmd);
++        s_vk.open_rp = VK_NULL_HANDLE; s_vk.open_fb = VK_NULL_HANDLE;
++    }
++    const double t0 = s_vk.stats ? vk_now_ms() : 0.0;
++    int rc = 0;
+     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                         .commandBufferCount = 1, .pCommandBuffers = &s_vk.cmd };
+-    VK_CHECK(pvkResetFences(s_vk.device, 1, &s_vk.fence), "vkResetFences");
+-    VK_CHECK(vk_queue_submit(&si, s_vk.fence), "vkQueueSubmit");
+-    VK_CHECK(pvkWaitForFences(s_vk.device, 1, &s_vk.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
++    if (pvkEndCommandBuffer(s_vk.cmd) != VK_SUCCESS) { VK_LOG("vkEndCommandBuffer failed\n"); rc = -1; }
++    else if (pvkResetFences(s_vk.device, 1, &s_vk.fence) != VK_SUCCESS) rc = -1;
++    else if (vk_queue_submit(&si, s_vk.fence) != VK_SUCCESS) { VK_LOG("vkQueueSubmit failed\n"); rc = -1; }
++    else if (pvkWaitForFences(s_vk.device, 1, &s_vk.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) rc = -1;
++    if (s_vk.stats) { s_vk.st_flushes++; s_vk.st_wait_ms += vk_now_ms() - t0; }
++    vk_batch_reset();
++    return rc;
++}
++
++/* Depois de uma espera: arena e pool de descriptors livres de novo, e os
++ * buffers adiados podem ir embora. */
++static void vk_batch_reset(void)
++{
++    s_vk.arena_used = 0;
++    if (s_vk.batch_pool && s_vk.batch_sets) pvkResetDescriptorPool(s_vk.device, s_vk.batch_pool, 0);
++    s_vk.batch_sets = 0;
++    for (u32 i = 0; i < s_vk.deferred_count; i++) vk_destroy_buffer(&s_vk.deferred[i]);
++    s_vk.deferred_count = 0;
++}
++
++#define VK_ARENA_FAIL ((VkDeviceSize)~(VkDeviceSize)0)
++static VkDeviceSize vk_arena_alloc(VkDeviceSize bytes, VkDeviceSize align)
++{
++    if (!s_vk.arena.buf) return VK_ARENA_FAIL;
++    const VkDeviceSize off = (s_vk.arena_used + align - 1u) / align * align;
++    if (off + bytes > s_vk.arena.size) return VK_ARENA_FAIL;
++    s_vk.arena_used = off + bytes;
++    return off;
++}
++/* Garante `bytes` (com folga de alinhamento) e um descriptor set livres no
++ * lote; senão esvazia o lote primeiro. 0 = cabe. */
++static int vk_arena_reserve(VkDeviceSize bytes, u32 sets)
++{
++    if (!s_vk.arena.buf || bytes > s_vk.arena.size) return -1;
++    vk_batch_settle();                      /* a GPU ainda lê a arena do lote anterior */
++    if (s_vk.arena_used + bytes > s_vk.arena.size ||
++        (sets && s_vk.batch_sets + sets > s_vk.batch_cap))
++        vk_flush_pending();
++    return 0;
++}
++static int vk_batch_init(void)
++{
++    VkPhysicalDeviceProperties p;
++    pvkGetPhysicalDeviceProperties(s_vk.phys, &p);
++    s_vk.ubo_align = p.limits.minUniformBufferOffsetAlignment ? p.limits.minUniformBufferOffsetAlignment : 256;
++    if (s_vk.ubo_align < 16) s_vk.ubo_align = 16;
++    if (vk_create_host_buffer(&s_vk.arena, 96ull << 20,
++                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
++                              VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT) ||
++        !s_vk.arena.coherent) {
++        vk_destroy_buffer(&s_vk.arena);
++        VK_LOG("batch arena unavailable -- every operation waits on its own\n");
++        return -1;
++    }
++    s_vk.batch_cap = 4096;
++    VkDescriptorPoolSize ps[3] = {
++        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2u * s_vk.batch_cap },
++        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, RSX_MAX_TEXTURES * s_vk.batch_cap },
++        { VK_DESCRIPTOR_TYPE_SAMPLER, RSX_MAX_TEXTURES * s_vk.batch_cap },
++    };
++    VkDescriptorPoolCreateInfo pci = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
++                                       .maxSets = s_vk.batch_cap, .poolSizeCount = 3, .pPoolSizes = ps };
++    if (pvkCreateDescriptorPool(s_vk.device, &pci, NULL, &s_vk.batch_pool) != VK_SUCCESS) {
++        s_vk.batch_pool = VK_NULL_HANDLE; s_vk.batch_cap = 0;
++        VK_LOG("batch descriptor pool unavailable\n");
++        return -1;
++    }
++    VK_LOG("batched submission: %llu MB arena, %u sets per batch\n",
++           (unsigned long long)(s_vk.arena.size >> 20), s_vk.batch_cap);
+     return 0;
+ }
+ 
+@@ -1708,15 +1908,43 @@ static void vk_window_drop(const char* why)
+ static void vk_window_open(const char* title)
+ {
+     if (!vk_env_on("PS3RECOMP_VK_WINDOW")) return;
++    /* Pixels reais: sem isto, com a escala de tela do Windows em 125%/150% a
++     * janela de 1920x1080 vira 2400x1350 e sai da tela (bordas cortadas). */
++    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+         VK_LOG("window disabled, continuing headless: SDL video init failed: %s\n", SDL_GetError());
+         return;
+     }
+-    Uint32 flags = SDL_WINDOW_VULKAN | SDL_WINDOW_SHOWN;
+-    if (vk_env_on("PS3RECOMP_VK_FULLSCREEN")) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
++    const int fullscreen = vk_env_on("PS3RECOMP_VK_FULLSCREEN");
++    Uint32 flags = SDL_WINDOW_VULKAN | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
++    if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
++    /* A resolução escolhida é a de renderização; a janela cabe na área útil
++     * da tela (sem a barra de tarefas, com a moldura), mantendo 16:9. */
++    int ww = (int)s_vk.width, wh = (int)s_vk.height;
++    SDL_Rect ub;
++    if (!fullscreen && SDL_GetDisplayUsableBounds(0, &ub) == 0) {
++        const int maxw = ub.w - 16, maxh = ub.h - 48;     /* moldura + título */
++        if (maxw > 0 && maxh > 0 && (ww > maxw || wh > maxh)) {
++            const double k = (double)maxw / ww < (double)maxh / wh ? (double)maxw / ww : (double)maxh / wh;
++            ww = (int)(ww * k); wh = (int)(wh * k);
++            VK_LOG("window %ux%u does not fit the screen (%dx%d usable): opening at %dx%d, "
++                   "rendering stays %ux%u\n", s_vk.width, s_vk.height, ub.w, ub.h, ww, wh,
++                   s_vk.width, s_vk.height);
++        }
++    }
+     s_vk.window = SDL_CreateWindow(title && title[0] ? title : "ps3recomp",
+                                    SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+-                                   (int)s_vk.width, (int)s_vk.height, flags);
++                                   ww, wh, flags);
++    if (s_vk.window && !fullscreen && SDL_GetDisplayUsableBounds(0, &ub) == 0) {
++        int top = 0, left = 0, bottom = 0, right = 0;
++        if (SDL_GetWindowBordersSize(s_vk.window, &top, &left, &bottom, &right) == 0) {
++            const int fw = ww + left + right, fh = wh + top + bottom;
++            int x = ub.x + (ub.w - fw) / 2 + left, y = ub.y + (ub.h - fh) / 2 + top;
++            if (x < ub.x + left) x = ub.x + left;
++            if (y < ub.y + top)  y = ub.y + top;
++            SDL_SetWindowPosition(s_vk.window, x, y);
++        }
++    }
+     s_vk.windowed = 1;          /* so vk_window_drop also shuts SDL video down */
+     if (!s_vk.window) {
+         char why[256];
+@@ -1739,6 +1967,33 @@ static void vk_window_open(const char* title)
+            SDL_GetCurrentVideoDriver(), n);
+ }
+ 
++/* FIFO bloqueava a thread do RSX no vkQueuePresentKHR até o vblank -- e é
++ * ela que escreve os labels que o jogo espera, então o jogo inteiro esperava
++ * junto. O ritmo de 60 Hz já vem dos flips do jogo; MAILBOX (sem tearing) ou
++ * IMMEDIATE não bloqueiam. PS3RECOMP_VK_VSYNC=1 volta ao FIFO. */
++static VkPresentModeKHR vk_pick_present_mode(void)
++{
++    static int logged = 0;
++    VkPresentModeKHR pick = VK_PRESENT_MODE_FIFO_KHR;
++    const char* v = getenv("PS3RECOMP_VK_VSYNC");
++    if (!(v && v[0] == '1') && pvkGetPhysicalDeviceSurfacePresentModesKHR) {
++        VkPresentModeKHR modes[16]; u32 n = 16;
++        if (pvkGetPhysicalDeviceSurfacePresentModesKHR(s_vk.phys, s_vk.surface, &n, modes) >= 0) {
++            int has_mailbox = 0, has_immediate = 0;
++            for (u32 i = 0; i < n && i < 16; i++) {
++                if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) has_mailbox = 1;
++                if (modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) has_immediate = 1;
++            }
++            pick = has_mailbox ? VK_PRESENT_MODE_MAILBOX_KHR
++                 : has_immediate ? VK_PRESENT_MODE_IMMEDIATE_KHR : VK_PRESENT_MODE_FIFO_KHR;
++        }
++    }
++    if (!logged) { logged = 1;
++        VK_LOG("present mode: %s\n", pick == VK_PRESENT_MODE_MAILBOX_KHR ? "MAILBOX"
++               : pick == VK_PRESENT_MODE_IMMEDIATE_KHR ? "IMMEDIATE" : "FIFO (vsync)"); }
++    return pick;
++}
++
+ static int vk_create_swapchain(void)
+ {
+     VkSurfaceCapabilitiesKHR caps;
+@@ -1783,7 +2038,9 @@ static int vk_create_swapchain(void)
+         if (ext.width  > caps.maxImageExtent.width)  ext.width  = caps.maxImageExtent.width;
+         if (ext.height > caps.maxImageExtent.height) ext.height = caps.maxImageExtent.height;
+     }
+-    if (!ext.width || !ext.height) { VK_LOG("window has no drawable area\n"); return -1; }
++    /* Minimizada (ou escondida): sem área, sem swapchain -- não é erro. O
++     * present pula frames até a janela voltar (vk_present_window). */
++    if (!ext.width || !ext.height) return 1;
+ 
+     u32 count = caps.minImageCount + 1;
+     if (caps.maxImageCount && count > caps.maxImageCount) count = caps.maxImageCount;
+@@ -1805,7 +2062,7 @@ static int vk_create_swapchain(void)
+         .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+         .preTransform = caps.currentTransform, .compositeAlpha = alpha,
+-        .presentMode = VK_PRESENT_MODE_FIFO_KHR,   /* the one mode every driver has */
++        .presentMode = vk_pick_present_mode(),
+         .clipped = VK_TRUE, .oldSwapchain = old,
+     };
+     VkSwapchainKHR sc = VK_NULL_HANDLE;
+@@ -1830,21 +2087,152 @@ static int vk_create_swapchain(void)
+         VK_CHECK(pvkCreateSemaphore(s_vk.device, &semi, NULL, &s_vk.sc_done[i]), "vkCreateSemaphore");
+ 
+     s_vk.sc_extent = ext;
++    s_vk.sc_format = fmt.format;
+     s_vk.sc_count = n;
+     VK_LOG("window swapchain %ux%u, %u images, format %d\n", ext.width, ext.height, n, (int)fmt.format);
+     return 0;
+ }
+ 
++static int s_sc_suspended;   /* janela sem área (minimizada): present em espera */
++
+ static void vk_swapchain_lost(void)
+ {
+     vk_device_idle();
+-    if (vk_create_swapchain()) vk_window_drop("the swapchain could not be recreated");
++    const int rc = vk_create_swapchain();
++    if (rc == 1) {
++        if (!s_sc_suspended) VK_LOG("window has no drawable area (minimized?) -- presents paused\n");
++        s_sc_suspended = 1;
++    } else if (rc) {
++        vk_window_drop("the swapchain could not be recreated");
++    } else if (s_sc_suspended) {
++        s_sc_suspended = 0;
++        VK_LOG("window restored -- presents resumed\n");
++    }
++}
++
++/* ---------------------------------------------------------------------------
++ * Contador de FPS (PS3RECOMP_VK_FPS=1): texto 5x7 ampliado, copiado para o
++ * canto superior direito da imagem da swapchain depois do blit. Só a janela
++ * o mostra; o frame do jogo (dump, testes) não muda.
++ * -------------------------------------------------------------------------*/
++static const u8 k_font5x7[13][7] = {
++    {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E},
++    {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F}, {0x1F,0x02,0x04,0x02,0x01,0x11,0x0E},
++    {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E},
++    {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, {0x1F,0x01,0x02,0x04,0x08,0x08,0x08},
++    {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C},
++    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, /* F */
++    {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10}, /* P */
++    {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, /* S */
++};
++#define VK_OVL_W 200u
++#define VK_OVL_H 48u
++
++static void vk_frame_stats(void)
++{
++    if (!s_vk.fps_overlay && !s_vk.stats) return;
++    const double now = vk_now_ms();
++    if (s_vk.fps_t0 == 0.0) { s_vk.fps_t0 = s_vk.st_t0 = now; }
++    s_vk.fps_frames++;
++    if (now - s_vk.fps_t0 >= 500.0) {
++        s_vk.fps_shown = (u32)(s_vk.fps_frames * 1000.0 / (now - s_vk.fps_t0) + 0.5);
++        s_vk.fps_frames = 0;
++        s_vk.fps_t0 = now;
++    }
++    if (s_vk.stats) {
++        s_vk.st_frames++;
++        if (now - s_vk.st_t0 >= 2000.0) {
++            const double f = s_vk.st_frames ? (double)s_vk.st_frames : 1.0;
++            VK_LOG("stats: %.1f fps | %.0f draws/frame | %.1f GPU waits/frame | %.2f ms waiting/frame | %.2f ms present/frame\n",
++                   s_vk.st_frames * 1000.0 / (now - s_vk.st_t0), s_vk.st_draws / f,
++                   s_vk.st_flushes / f, s_vk.st_wait_ms / f, s_vk.st_present_ms / f);
++            s_vk.st_frames = s_vk.st_draws = s_vk.st_flushes = 0;
++            s_vk.st_wait_ms = s_vk.st_present_ms = 0.0;
++            s_vk.st_t0 = now;
++        }
++    }
++}
++
++/* Records the counter into `img` (TRANSFER_DST_OPTIMAL). Returns 0 if it drew. */
++static int vk_overlay_record(VkCommandBuffer cb, VkImage img)
++{
++    if (!s_vk.overlay.buf &&
++        (vk_create_host_buffer(&s_vk.overlay, VK_OVL_W * VK_OVL_H * 4u, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) ||
++         !s_vk.overlay.coherent)) {
++        vk_destroy_buffer(&s_vk.overlay);
++        s_vk.fps_overlay = 0;
++        return -1;
++    }
++    char text[16];
++    snprintf(text, sizeof text, "FPS %u", s_vk.fps_shown > 999 ? 999u : s_vk.fps_shown);
++    const u32 len = (u32)strlen(text);
++    /* escala pela altura da janela: ~3 px por pixel da fonte em 1080p */
++    u32 sc = s_vk.sc_extent.height / 360u;
++    if (sc < 2) sc = 2;
++    if (sc > 4) sc = 4;
++    const u32 pad = 2u * sc;
++    u32 w = len * 6u * sc - sc + 2u * pad, h = 7u * sc + 2u * pad;
++    if (w > VK_OVL_W) w = VK_OVL_W;
++    if (h > VK_OVL_H) h = VK_OVL_H;
++    if (w + 8u > s_vk.sc_extent.width || h + 8u > s_vk.sc_extent.height) return -1;
++    const int bgra = s_vk.sc_format == VK_FORMAT_B8G8R8A8_UNORM || s_vk.sc_format == VK_FORMAT_B8G8R8A8_SRGB;
++    u8* px = (u8*)s_vk.overlay.ptr;
++    for (u32 y = 0; y < h; y++)
++        for (u32 x = 0; x < w; x++) {
++            int on = 0;
++            if (x >= pad && y >= pad && y < pad + 7u * sc) {
++                const u32 cx = (x - pad) / sc, cy = (y - pad) / sc;
++                const u32 ci = cx / 6u, col = cx % 6u;
++                if (ci < len && col < 5u) {
++                    const char ch = text[ci];
++                    int g = -1;
++                    if (ch >= '0' && ch <= '9') g = ch - '0';
++                    else if (ch == 'F') g = 10;
++                    else if (ch == 'P') g = 11;
++                    else if (ch == 'S') g = 12;
++                    if (g >= 0) on = (k_font5x7[g][cy] >> (4u - col)) & 1u;
++                }
++            }
++            u8 r = on ? 0x5A : 0x10, gg = on ? 0xFF : 0x10, b = on ? 0x5A : 0x10;
++            u8* d = px + ((size_t)y * w + x) * 4u;
++            d[0] = bgra ? b : r; d[1] = gg; d[2] = bgra ? r : b; d[3] = 0xFF;
++        }
++    VkBufferImageCopy region = {
++        .bufferOffset = 0, .bufferRowLength = w, .bufferImageHeight = h,
++        .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
++        .imageOffset = { (int32_t)(s_vk.sc_extent.width - w - 8u), 8, 0 },
++        .imageExtent = { w, h, 1 },
++    };
++    pvkCmdCopyBufferToImage(cb, s_vk.overlay.buf, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
++    return 0;
++}
++
++static void vk_transfer_dst_barrier(VkCommandBuffer cb, VkImage img)
++{
++    VkImageMemoryBarrier b = {
++        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT, .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
++        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++        .image = img, .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
++    };
++    pvkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                          0, 0, NULL, 0, NULL, 1, &b);
+ }
+ 
+ /* Blit the offscreen target into the next swapchain image and present it. */
+ static void vk_present_window(void)
+ {
+-    if (!s_vk.windowed || !s_vk.swapchain) return;
++    if (!s_vk.windowed) return;
++    if (s_sc_suspended) {
++        /* Tenta de novo só quando o SDL disser que a janela tem área. */
++        int w = 0, hh = 0;
++        SDL_Vulkan_GetDrawableSize(s_vk.window, &w, &hh);
++        if (w <= 0 || hh <= 0 || (SDL_GetWindowFlags(s_vk.window) & SDL_WINDOW_MINIMIZED)) return;
++        vk_swapchain_lost();
++        if (s_sc_suspended) return;
++    }
++    if (!s_vk.swapchain) return;
+ 
+     u32 idx = 0;
+     VkResult r = pvkAcquireNextImageKHR(s_vk.device, s_vk.swapchain, UINT64_MAX,
+@@ -1871,16 +2259,38 @@ static void vk_present_window(void)
+     };
+     pvkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           0, 0, NULL, 0, NULL, 1, &b);
++    /* Mantém a proporção do jogo: janela mais larga ou mais alta que o frame
++     * ganha faixas pretas em vez de esticar ou cortar a imagem. */
++    const u32 sw = s_vk.sc_extent.width, sh = s_vk.sc_extent.height;
++    u32 dw = sw, dh = sh;
++    const unsigned long long lhs = (unsigned long long)sw * s_vk.height;
++    const unsigned long long rhs = (unsigned long long)sh * s_vk.width;
++    if (lhs > rhs) dw = (u32)(rhs / s_vk.height);
++    else if (lhs < rhs) dh = (u32)(lhs / s_vk.width);
++    if (!dw) dw = 1;
++    if (!dh) dh = 1;
++    const u32 dx = (sw - dw) / 2u, dy = (sh - dh) / 2u;
++    if (dw != sw || dh != sh) {
++        VkClearColorValue black = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } };
++        VkImageSubresourceRange cr = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
++        pvkCmdClearColorImage(cb, s_vk.sc_images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &cr);
++        vk_transfer_dst_barrier(cb, s_vk.sc_images[idx]);
++    }
+     VkImageBlit blit = {
+         .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+         .srcOffsets = { { 0, 0, 0 }, { (int32_t)s_vk.width, (int32_t)s_vk.height, 1 } },
+         .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+-        .dstOffsets = { { 0, 0, 0 },
+-                        { (int32_t)s_vk.sc_extent.width, (int32_t)s_vk.sc_extent.height, 1 } },
++        .dstOffsets = { { (int32_t)dx, (int32_t)dy, 0 },
++                        { (int32_t)(dx + dw), (int32_t)(dy + dh), 1 } },
+     };
+     pvkCmdBlitImage(cb, s_vk.color.img, VK_IMAGE_LAYOUT_GENERAL,
+                     s_vk.sc_images[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+-                    1, &blit, VK_FILTER_LINEAR);
++                    1, &blit, (dw == s_vk.width && dh == s_vk.height) ? VK_FILTER_NEAREST
++                                                                      : VK_FILTER_LINEAR);
++    if (s_vk.fps_overlay) {
++        vk_transfer_dst_barrier(cb, s_vk.sc_images[idx]);
++        vk_overlay_record(cb, s_vk.sc_images[idx]);
++    }
+     b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+     b.dstAccessMask = 0;
+     b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+@@ -1909,14 +2319,37 @@ static void vk_present_window(void)
+         .swapchainCount = 1, .pSwapchains = &s_vk.swapchain, .pImageIndices = &idx,
+     };
+     r = vk_queue_present(&pi);
+-    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) vk_swapchain_lost();
++    if (r == VK_ERROR_OUT_OF_DATE_KHR) vk_swapchain_lost();
++    else if (r == VK_SUBOPTIMAL_KHR) {
++        /* SUBOPTIMAL só pede uma swapchain nova quando o tamanho da janela
++         * mudou de fato. Alguns drivers (NVIDIA em modos de apresentação
++         * compostos, por exemplo) devolvem SUBOPTIMAL quadro após quadro sem
++         * mudança nenhuma, e recriar a swapchain a cada frame -- com um
++         * vkDeviceWaitIdle -- vira travadas e tela piscando. */
++        VkSurfaceCapabilitiesKHR caps;
++        static unsigned long long last_ms = 0;
++        const unsigned long long now = (unsigned long long)SDL_GetTicks64();
++        if (pvkGetPhysicalDeviceSurfaceCapabilitiesKHR(s_vk.phys, s_vk.surface, &caps) == VK_SUCCESS &&
++            caps.currentExtent.width != 0xFFFFFFFFu &&
++            (caps.currentExtent.width != s_vk.sc_extent.width ||
++             caps.currentExtent.height != s_vk.sc_extent.height)) {
++            vk_swapchain_lost();
++        } else if (now - last_ms > 2000) {
++            last_ms = now;          /* sem mudança: no máximo uma recriação a cada 2 s */
++            vk_swapchain_lost();
++        }
++    }
+     else if (r != VK_SUCCESS) VK_LOG("vkQueuePresentKHR failed (VkResult %d)\n", (int)r);
+ }
+ 
+ static void vk_dump_ppm(const unsigned char* rgba)
+ {
+-    FILE* f = fopen(s_vk.dump_path, "wb");
+-    if (!f) { VK_LOG("cannot open %s for the frame dump\n", s_vk.dump_path); return; }
++    /* Um "%u" no caminho numera os frames (sequência para inspeção). */
++    char path[1024];
++    if (strchr(s_vk.dump_path, '%')) snprintf(path, sizeof path, s_vk.dump_path, (unsigned)s_vk.presented);
++    else snprintf(path, sizeof path, "%s", s_vk.dump_path);
++    FILE* f = fopen(path, "wb");
++    if (!f) { VK_LOG("cannot open %s for the frame dump\n", path); return; }
+     fprintf(f, "P6\n%u %u\n255\n", s_vk.width, s_vk.height);
+     for (size_t i = 0; i < (size_t)s_vk.width * s_vk.height; i++)
+         fwrite(rgba + i * 4, 1, 3, f);
+@@ -1957,19 +2390,25 @@ static void vk_present_complete_locked(void)
+     pvkWaitForFences(s_vk.device, 1, &s_vk.present_fence, VK_TRUE, UINT64_MAX);
+     __atomic_store_n(&s_vk.present_inflight, 0, __ATOMIC_RELEASE);
+ 
+-    vk_invalidate(&s_vk.readback);
+-    const unsigned char* px = (const unsigned char*)s_vk.readback.ptr;
+-    size_t c = ((size_t)(s_vk.height / 2) * s_vk.width + s_vk.width / 2) * 4;
+-    s_vk.last_center = ((u32)px[c] << 16) | ((u32)px[c + 1] << 8) | (u32)px[c + 2];
+     s_vk.presented++;
+-    if (s_vk.dump_path && (s_vk.presented % s_vk.dump_every) == 0) vk_dump_ppm(px);
+-    vk_present_window();
++    if (s_vk.rb_this) {
++        vk_invalidate(&s_vk.readback);
++        const unsigned char* px = (const unsigned char*)s_vk.readback.ptr;
++        size_t c = ((size_t)(s_vk.height / 2) * s_vk.width + s_vk.width / 2) * 4;
++        s_vk.last_center = ((u32)px[c] << 16) | ((u32)px[c + 1] << 8) | (u32)px[c + 2];
++        if (s_vk.dump_path && (s_vk.presented % s_vk.dump_every) == 0) vk_dump_ppm(px);
++    }
++    vk_frame_stats();
++    { const double tp = s_vk.stats ? vk_now_ms() : 0.0;
++      vk_present_window();
++      if (s_vk.stats) s_vk.st_present_ms += vk_now_ms() - tp; }
+ }
+ 
+ /* present_mu held: a previous present finished, the present's command
+  * buffer begun and ordered after everything submitted so far. */
+ static VkCommandBuffer vk_present_record_begin(void)
+ {
++    vk_submit_nowait();                      /* o copy do present vem depois na fila */
+     vk_present_complete_locked();
+     VkCommandBuffer cb = s_vk.present_cmd;
+     if (pvkResetCommandBuffer(cb, 0) != VK_SUCCESS) return VK_NULL_HANDLE;
+@@ -1985,6 +2424,11 @@ static VkCommandBuffer vk_present_record_begin(void)
+ static void vk_present_record_end(VkCommandBuffer cb)
+ {
+     vk_barrier_image_on(cb, s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
++    /* A cópia do frame inteiro para a CPU custava caro em todo present; só é
++     * feita para o dump (no frame que será gravado) ou se pedida. */
++    s_vk.rb_this = s_vk.need_readback ||
++                   (s_vk.dump_path && ((s_vk.presented + 1u) % s_vk.dump_every) == 0);
++    if (s_vk.rb_this) {
+     VkBufferImageCopy region = {
+         .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+         .imageExtent = { s_vk.width, s_vk.height, 1 },
+@@ -1999,6 +2443,7 @@ static void vk_present_record_end(VkCommandBuffer cb)
+     };
+     pvkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                           0, 0, NULL, 1, &host, 0, NULL);
++    }
+     if (pvkEndCommandBuffer(cb) != VK_SUCCESS) { VK_LOG("vkEndCommandBuffer (present) failed\n"); return; }
+     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                         .commandBufferCount = 1, .pCommandBuffers = &cb };
+@@ -2124,6 +2569,24 @@ static int vk_eng_upload_region(VkImage img, u32 layer, u32 mip, u32 x, u32 y,
+                                 const void* src, u32 row_bytes)
+ {
+     if (tight > row_bytes) tight = row_bytes;
++    const VkDeviceSize bytes = (VkDeviceSize)tight * rows;
++    if (s_vk.arena.buf && bytes + 16u <= s_vk.arena.size / 2u && !vk_arena_reserve(bytes + 16u, 0)) {
++        const VkDeviceSize off = vk_arena_alloc(bytes, 16);
++        if (off != VK_ARENA_FAIL) {
++            for (u32 r = 0; r < rows; r++)
++                memcpy((u8*)s_vk.arena.ptr + off + (size_t)r * tight,
++                       (const u8*)src + (size_t)r * row_bytes, tight);
++            if (vk_begin()) return -1;
++            VkBufferImageCopy region = {
++                .bufferOffset = off,
++                .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, layer, 1 },
++                .imageOffset = { (int32_t)x, (int32_t)y, 0 },
++                .imageExtent = { w, h, 1 },
++            };
++            pvkCmdCopyBufferToImage(s_vk.cmd, s_vk.arena.buf, img, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
++            return 0;
++        }
++    }
+     vk_buffer st = {0};
+     if (vk_create_host_buffer(&st, (VkDeviceSize)tight * rows, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) ||
+         !st.coherent) { vk_destroy_buffer(&st); return -1; }
+@@ -2241,7 +2704,8 @@ static void vk_eng_shutdown(void* user)
+ 
+ static void vk_eng_submit_and_wait(void* user, u32 reason)
+ {
+-    (void)user; (void)reason;      /* every submission has already completed */
++    (void)user; (void)reason;
++    vk_flush_pending();            /* the batch, if any, completes here */
+ }
+ 
+ static u32 vk_eng_color_target_create(void* user, rsx_be_format fmt, u32 w, u32 h,
+@@ -2327,7 +2791,6 @@ static void vk_eng_clear_color(void* user, u32 surface, const float rgba[4])
+     VkImageSubresourceRange r = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+     vk_barrier_image(o->im.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
+     pvkCmdClearColorImage(s_vk.cmd, o->im.img, VK_IMAGE_LAYOUT_GENERAL, &v, 1, &r);
+-    vk_submit_and_wait();
+ }
+ 
+ static void vk_eng_clear_depth_stencil(void* user, u32 depth, u32 flags,
+@@ -2343,7 +2806,6 @@ static void vk_eng_clear_depth_stencil(void* user, u32 depth, u32 flags,
+     VkImageSubresourceRange r = { aspect, 0, 1, 0, 1 };
+     vk_barrier_image(o->im.img, s_vk.depth_aspect, VK_IMAGE_LAYOUT_GENERAL);
+     pvkCmdClearDepthStencilImage(s_vk.cmd, o->im.img, VK_IMAGE_LAYOUT_GENERAL, &d, 1, &r);
+-    vk_submit_and_wait();
+ }
+ 
+ /* The named surface becomes the frame: blit it onto the display image, then
+@@ -2774,6 +3236,7 @@ static u32 s_esamp_count;
+ 
+ static void vk_eng_drop_framebuffers(void)
+ {
++    if (s_e2.fb_count) vk_flush_pending();
+     for (u32 i = 0; i < s_e2.fb_count; i++)
+         if (s_e2.fb[i].fb) pvkDestroyFramebuffer(s_vk.device, s_e2.fb[i].fb, NULL);
+     s_e2.fb_count = 0;
+@@ -2985,6 +3448,7 @@ static void vk_eng_pipeline_release(void* user, u32 pipeline)
+     (void)user;
+     if (!pipeline || pipeline > VK_ENG_MAX_PIPE || !s_epipe[pipeline - 1].used) return;
+     vk_eng_pipe* P = &s_epipe[pipeline - 1];
++    vk_flush_pending();
+     for (u32 t = 0; t < VK_ENG_TOPOLOGIES; t++)
+         if (P->variant[t]) pvkDestroyPipeline(s_vk.device, P->variant[t], NULL);
+     if (P->vs) pvkDestroyShaderModule(s_vk.device, P->vs, NULL);
+@@ -3120,24 +3584,27 @@ static void vk_eng2_shutdown(void* user)
+     s_esamp_count = 0;
+ }
+ 
+-/* Constants go straight into the shared UBO: vertex at 0, pixel at ps_off.
+- * Every operation is waited on, so overwriting per draw is safe. */
++/* Constants: kept on the CPU and copied into the batch arena by the draw
++ * that uses them (with batching, a draw recorded earlier may still be
++ * pending, so the shared UBO cannot be overwritten in place). */
++static u8 s_vs_consts[VK_VPCONST_BYTES];
++static u8 s_ps_consts[(RSX_FP_MAX_INLINE_CONSTANTS + 1u) * 16u];
+ static void vk_eng_bind_vs_constants(void* user, const void* data, u32 bytes)
+ {
+     (void)user;
+     if (!s_g.on || !data) { s_e2.vs_bytes = 0; return; }
+-    const u32 cap = (u32)s_g.ps_off;
++    const u32 cap = (u32)sizeof s_vs_consts;
+     if (bytes > cap) { bytes = cap; if (!(s_e2.warned & 2u)) { VK_LOG("engine: VS constants truncated\n"); s_e2.warned |= 2u; } }
+-    memcpy(s_g.ubo.ptr, data, bytes);
++    memcpy(s_vs_consts, data, bytes);
+     s_e2.vs_bytes = bytes;
+ }
+ static void vk_eng_bind_ps_constants(void* user, const void* data, u32 bytes)
+ {
+     (void)user;
+     if (!s_g.on || !data) { s_e2.ps_bytes = 0; return; }
+-    const u32 cap = (u32)(s_g.ubo.size - s_g.ps_off);
++    const u32 cap = (u32)sizeof s_ps_consts;
+     if (bytes > cap) { bytes = cap; if (!(s_e2.warned & 4u)) { VK_LOG("engine: PS constants truncated\n"); s_e2.warned |= 4u; } }
+-    memcpy((u8*)s_g.ubo.ptr + s_g.ps_off, data, bytes);
++    memcpy(s_ps_consts, data, bytes);
+     s_e2.ps_bytes = bytes;
+ }
+ static void vk_eng_bind_textures(void* user, const u32* textures,
+@@ -3299,18 +3766,19 @@ static VkImageView vk_eng_dummy_cube_view(void)
+ /* Fill the set the bound pipeline uses: the shared one (sixteen textures in
+  * one binding), or for a pipeline with cube units the split one (one binding
+  * per unit). Returns the set, or VK_NULL_HANDLE. */
+-static VkDescriptorSet vk_eng_write_descriptors(const vk_eng_pipe* P)
++typedef struct {
++    VkDescriptorImageInfo ii[RSX_MAX_TEXTURES], si[RSX_MAX_TEXTURES];
++} vk_eng_images;
++
++/* Views and samplers for the bound units. Runs before the draw reserves its
++ * batch space: creating the 1x1 cube may submit and wait. */
++static int vk_eng_resolve_images(const vk_eng_pipe* P, vk_eng_images* out)
+ {
+     const int split = P->cube_mask != 0;
+-    const VkDescriptorSet set = split ? s_e2.split_set : s_g.set;
+-    if (!set) return VK_NULL_HANDLE;
+     const VkImageView dummy_cube = split ? vk_eng_dummy_cube_view() : VK_NULL_HANDLE;
+-    if (split && !dummy_cube) return VK_NULL_HANDLE;
+-    VkDescriptorBufferInfo bi[2] = {
+-        { s_g.ubo.buf, 0, s_e2.vs_bytes ? s_e2.vs_bytes : 16u },
+-        { s_g.ubo.buf, s_g.ps_off, s_e2.ps_bytes ? s_e2.ps_bytes : 16u },
+-    };
+-    VkDescriptorImageInfo ii[RSX_MAX_TEXTURES], si[RSX_MAX_TEXTURES];
++    if (split && !dummy_cube) return -1;
++    VkDescriptorImageInfo* ii = out->ii;
++    VkDescriptorImageInfo* si = out->si;
+     for (u32 u = 0; u < RSX_MAX_TEXTURES; u++) {
+         const int cube = (P->cube_mask >> u) & 1u;
+         VkImageView v = ((s_e2.tex_mask >> u) & 1u) ? vk_eng_sample_view(s_e2.tex[u], cube)
+@@ -3321,6 +3789,30 @@ static VkDescriptorSet vk_eng_write_descriptors(const vk_eng_pipe* P)
+                                          VK_IMAGE_LAYOUT_GENERAL };
+         si[u] = (VkDescriptorImageInfo){ smp, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+     }
++    return 0;
++}
++
++/* A fresh set from the batch pool, pointing at this draw's constants in the
++ * arena. The pool has room (vk_arena_reserve made sure). */
++static VkDescriptorSet vk_eng_write_descriptors(const vk_eng_pipe* P, const vk_eng_images* im,
++                                                VkDeviceSize vs_off, VkDeviceSize vs_len,
++                                                VkDeviceSize ps_off, VkDeviceSize ps_len)
++{
++    const int split = P->cube_mask != 0;
++    VkDescriptorSetLayout layout = split ? s_e2.split_layout : s_g.set_layout;
++    if (!layout || !s_vk.batch_pool) return VK_NULL_HANDLE;
++    VkDescriptorSetAllocateInfo dai = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
++                                        .descriptorPool = s_vk.batch_pool, .descriptorSetCount = 1,
++                                        .pSetLayouts = &layout };
++    VkDescriptorSet set = VK_NULL_HANDLE;
++    if (pvkAllocateDescriptorSets(s_vk.device, &dai, &set) != VK_SUCCESS) return VK_NULL_HANDLE;
++    s_vk.batch_sets++;
++    VkDescriptorBufferInfo bi[2] = {
++        { s_vk.arena.buf, vs_off, vs_len },
++        { s_vk.arena.buf, ps_off, ps_len },
++    };
++    const VkDescriptorImageInfo* ii = im->ii;
++    const VkDescriptorImageInfo* si = im->si;
+     VkWriteDescriptorSet w[3 + RSX_MAX_TEXTURES];
+     u32 n = 0;
+     w[n++] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set,
+@@ -3380,25 +3872,49 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
+     VkFramebuffer fb = vk_eng_framebuffer(rp, s_eng_bound.rt, n, dview, dkey, w, h);
+     if (!pipe || !rp || !fb) return;
+ 
++    vk_eng_images im;
++    if (vk_eng_resolve_images(P, &im)) return;
++
++    /* Everything this draw reads from host memory goes into the batch arena,
++     * so the draw can stay recorded while later ones are added. */
+     const VkDeviceSize vbytes = (VkDeviceSize)vertex_count * stride;
+-    if (vk_ensure_vertex_buffer(vbytes)) return;
+-    memcpy(s_vk.vertices.ptr, vertices, (size_t)vbytes);
+-    if (indices && index_count) {
+-        if (vk_eng_ensure_indices((VkDeviceSize)index_count * 4u)) return;
+-        memcpy(s_e2.indices.ptr, indices, (size_t)index_count * 4u);
++    const VkDeviceSize ibytes = (indices && index_count) ? (VkDeviceSize)index_count * 4u : 0;
++    const VkDeviceSize vs_len = s_e2.vs_bytes ? s_e2.vs_bytes : 16u;
++    const VkDeviceSize ps_len = s_e2.ps_bytes ? s_e2.ps_bytes : 16u;
++    const VkDeviceSize ua = s_vk.ubo_align;
++    if (vk_arena_reserve(vbytes + ibytes + vs_len + ps_len + 2u * ua + 64u, 1)) {
++        if (!(s_e2.warned & 64u)) { VK_LOG("engine: draw too large for the batch arena, skipped\n"); s_e2.warned |= 64u; }
++        return;
+     }
+-    const VkDescriptorSet set = vk_eng_write_descriptors(P);
++    const VkDeviceSize voff  = vk_arena_alloc(vbytes, 16);
++    const VkDeviceSize ioff  = ibytes ? vk_arena_alloc(ibytes, 4) : 0;
++    const VkDeviceSize vsoff = vk_arena_alloc(vs_len, ua);
++    const VkDeviceSize psoff = vk_arena_alloc(ps_len, ua);
++    if (voff == VK_ARENA_FAIL || ioff == VK_ARENA_FAIL || vsoff == VK_ARENA_FAIL || psoff == VK_ARENA_FAIL)
++        return;
++    u8* arena = (u8*)s_vk.arena.ptr;
++    memcpy(arena + voff, vertices, (size_t)vbytes);
++    if (ibytes) memcpy(arena + ioff, indices, (size_t)ibytes);
++    if (s_e2.vs_bytes) memcpy(arena + vsoff, s_vs_consts, s_e2.vs_bytes); else memset(arena + vsoff, 0, 16);
++    if (s_e2.ps_bytes) memcpy(arena + psoff, s_ps_consts, s_e2.ps_bytes); else memset(arena + psoff, 0, 16);
++    const VkDescriptorSet set = vk_eng_write_descriptors(P, &im, vsoff, vs_len, psoff, ps_len);
+     if (!set) return;
+ 
++    /* Mesmo framebuffer do draw anterior, sem nada entre eles: continua no
++     * mesmo render pass (a ordem de rasterização já ordena os dois). Senão
++     * vk_begin fecha o pass aberto e ordena este draw depois de tudo o que
++     * veio antes (inclusive draws cujos alvos este amostra). */
++    if (s_vk.recording && s_vk.open_rp == rp && s_vk.open_fb == fb) {
++        if (s_vk.stats) s_vk.st_draws++;
++    } else {
+     if (vk_begin()) return;
+-    /* Everything submitted before is complete (each submission is waited
+-     * on); this orders memory for the surfaces this draw touches. */
+-    for (u32 i = 0; i < n; i++)
+-        vk_barrier_image(s_eobj[s_eng_bound.rt[i]].im.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
++    if (s_vk.stats) s_vk.st_draws++;
+     VkRenderPassBeginInfo rbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                                   .renderPass = rp, .framebuffer = fb,
+                                   .renderArea = { { 0, 0 }, { w, h } } };
+     pvkCmdBeginRenderPass(s_vk.cmd, &rbi, VK_SUBPASS_CONTENTS_INLINE);
++    s_vk.open_rp = rp; s_vk.open_fb = fb;
++    }
+     pvkCmdBindPipeline(s_vk.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+     VkViewport vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
+     if (s_e2.have_vp && s_e2.vp[2] > 0.0f && s_e2.vp[3] > 0.0f) {
+@@ -3421,16 +3937,14 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
+     pvkCmdBindDescriptorSets(s_vk.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              P->cube_mask ? s_e2.split_pipe_layout : s_g.pipe_layout,
+                              0, 1, &set, 0, NULL);
+-    VkDeviceSize off = 0;
+-    pvkCmdBindVertexBuffers(s_vk.cmd, 0, 1, &s_vk.vertices.buf, &off);
+-    if (indices && index_count) {
+-        pvkCmdBindIndexBuffer(s_vk.cmd, s_e2.indices.buf, 0, VK_INDEX_TYPE_UINT32);
++    pvkCmdBindVertexBuffers(s_vk.cmd, 0, 1, &s_vk.arena.buf, &voff);
++    if (ibytes) {
++        pvkCmdBindIndexBuffer(s_vk.cmd, s_vk.arena.buf, ioff, VK_INDEX_TYPE_UINT32);
+         pvkCmdDrawIndexed(s_vk.cmd, index_count, 1, 0, 0, 0);
+     } else {
+         pvkCmdDraw(s_vk.cmd, vertex_count, 1, 0, 0);
+     }
+-    pvkCmdEndRenderPass(s_vk.cmd);
+-    vk_submit_and_wait();
++    /* pass fica aberto; o próximo draw no mesmo fb continua nele */
+ }
+ 
+ static const rsx_draw_backend s_vk_engine_backend = {
+@@ -3594,6 +4108,10 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+         VK_LOG("guest programs: setup failed, fixed-function path only\n");
+         vk_guest_shutdown();
+     }
++    if (!vk_env_on("PS3RECOMP_VK_NO_BATCH")) vk_batch_init();
++    s_vk.need_readback = vk_env_on("PS3RECOMP_VK_READBACK");
++    s_vk.fps_overlay   = vk_env_on("PS3RECOMP_VK_FPS");
++    s_vk.stats         = vk_env_on("PS3RECOMP_VK_STATS");
+ 
+     /* Both targets UNDEFINED -> GENERAL once. Colour starts opaque black so a
+      * present before the first clear reads defined memory; depth starts at
+@@ -3613,9 +4131,13 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+ 
+     if (s_vk.windowed) {
+         VkSemaphoreCreateInfo semi = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+-        if (pvkCreateSemaphore(s_vk.device, &semi, NULL, &s_vk.sem_acquire) != VK_SUCCESS ||
+-            vk_create_swapchain())
++        if (pvkCreateSemaphore(s_vk.device, &semi, NULL, &s_vk.sem_acquire) != VK_SUCCESS) {
+             vk_window_drop("the swapchain could not be created");
++        } else {
++            const int rc = vk_create_swapchain();
++            if (rc == 1) s_sc_suspended = 1;            /* aberta minimizada */
++            else if (rc) vk_window_drop("the swapchain could not be created");
++        }
+     }
+     return 0;
+ }
+@@ -3685,6 +4207,9 @@ void rsx_vulkan_backend_shutdown(void)
+         vk_destroy_image(&s_vk.color);
+         vk_destroy_buffer(&s_vk.vertices);
+         vk_destroy_buffer(&s_vk.readback);
++        vk_destroy_buffer(&s_vk.arena);
++        vk_destroy_buffer(&s_vk.overlay);
++        if (s_vk.batch_pool) pvkDestroyDescriptorPool(s_vk.device, s_vk.batch_pool, NULL);
+         if (s_vk.fence) pvkDestroyFence(s_vk.device, s_vk.fence, NULL);
+         if (s_vk.pool)  pvkDestroyCommandPool(s_vk.device, s_vk.pool, NULL);
+         if (s_vk.present_fence) pvkDestroyFence(s_vk.device, s_vk.present_fence, NULL);
+@@ -3706,8 +4231,9 @@ int rsx_vulkan_backend_pump_messages(void)
+     int quit = 0;
+     SDL_Event e;
+     while (SDL_PollEvent(&e)) {
++        /* Só o fechamento da janela encerra: Esc é tecla de jogo para quem
++         * joga no teclado, e sair sem aviso por ela perdia a partida. */
+         if (e.type == SDL_QUIT) quit = 1;
+-        else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) quit = 1;
+     }
+     return quit ? -1 : 0;
+ }
+@@ -3758,4 +4284,4 @@ int rsx_vulkan_backend_depth_bounds(void)
+     return s_vk.eng_active && s_vk.depth_bounds_ok;
+ }
+ 
+-#endif /* !_WIN32 */
++#endif /* !_WIN32 || PS3RECOMP_RSX_VULKAN */
+diff --git a/runtime/ppu/ppu_fs.cpp b/runtime/ppu/ppu_fs.cpp
+index 4d54b72..5ea8285 100644
+--- a/runtime/ppu/ppu_fs.cpp
++++ b/runtime/ppu/ppu_fs.cpp
+@@ -128,7 +128,14 @@ extern "C" void ps3_vfs_ps3game_fallback(char* path, size_t cap);
+ 
+ /* Translate a guest path to a host path under ppu_vfs_root. Known PS3 mount
+  * prefixes are stripped; the rest is appended to the root. */
++extern "C" void ps3_vfs_redirect(char* path, size_t cap);
++static void host_path_impl(char* out, size_t cap, const char* guest);
+ static void host_path(char* out, size_t cap, const char* guest)
++{
++    host_path_impl(out, cap, guest);
++    ps3_vfs_redirect(out, cap);
++}
++static void host_path_impl(char* out, size_t cap, const char* guest)
+ {
+     const char* rel = guest;
+     /* /dev_hdd0 overlays the installed game-update dir (a disc title patched to
+diff --git a/runtime/ppu/ppu_loader.cpp b/runtime/ppu/ppu_loader.cpp
+index f54150d..576b193 100644
+--- a/runtime/ppu/ppu_loader.cpp
++++ b/runtime/ppu/ppu_loader.cpp
+@@ -627,7 +627,11 @@ static uint32_t samp_stack_guest(HANDLE h, const CONTEXT* c)
+     const uintptr_t* sp = (const uintptr_t*)c->Rsp;
+     for (int i = 0; i < 512; i++) {          /* 4 KB of stack */
+         uintptr_t v;
++#if defined(_MSC_VER)
+         __try { v = sp[i]; } __except (1) { return 0; }
++#else   /* MinGW: sem SEH em C++ -- leitura protegida pelo kernel */
++        if (!ReadProcessMemory(GetCurrentProcess(), &sp[i], &v, sizeof v, NULL)) return 0;
++#endif
+         uint32_t g = samp_lookup(v);
+         if (g) return g;
+     }
+@@ -701,7 +705,9 @@ static DWORD WINAPI samp_thread(LPVOID p)
+  * Writing the word leaves memory self-consistent: lwarx, the CAS and the
+  * polling reader all see the same thing, so the guest behaves as it would if
+  * whatever should have cleared the counter had done so. */
+-extern "C" void ppu_resv_break(uint64_t ea);
++/* static: a definição abaixo é static inline (o MSVC aceita a redeclaração
++ * como extensão, o clang em modo MinGW não). */
++static inline void ppu_resv_break(uint64_t ea);
+ static DWORD WINAPI poke_thread(LPVOID p)
+ {
+     const uint32_t ea  = (uint32_t)(uintptr_t)p;
+diff --git a/runtime/spu/spu_channels.c b/runtime/spu/spu_channels.c
+index 59f5e4b..e1195e7 100644
+--- a/runtime/spu/spu_channels.c
++++ b/runtime/spu/spu_channels.c
+@@ -27,7 +27,7 @@
+ #endif
+ #include <time.h>
+ #include "../platform/win32_compat.h"
+-#include "ps3emu/log_first.h"
++#include "ps3emu/log_first.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -67,48 +67,48 @@ static uint64_t spu_host_ns(void)
+ #else
+ #  define SPU_TLS __thread
+ #endif
+-/* Called after an SPU atomic commits a 128-byte line, with the lock-line lock
+- * released. cellSpurs sets it so a PPU blocked in cellSpursEventFlagWait wakes
+- * when a task sets the flag, instead of on its next 2 ms poll. */
+-void (*g_spu_line_commit_hook)(uint32_t line) = 0;
+-/* spu_workload.c: wakes tasks parked in WAIT_SIGNAL on that line's taskset. */
+-void spu_taskset_line_committed(uint32_t line);
+-/* SPU_LS_WATCH=0x1BE80[,0x927D80...]: watch up to 4 16-byte LS lines (reads
+- * and writes) in every SPU image. See spu_ls_watch_hit2 for the fast path. */
+-#define SPU_WATCH_MAX 4
+-int g_spu_ls_watch_n = -1;
+-static unsigned s_spu_ls_watch[SPU_WATCH_MAX];
+-unsigned* spu_ls_watch_list(int* out_n)
+-{
+-    if (g_spu_ls_watch_n < 0) {
+-        int n = 0; const char* e = getenv("SPU_LS_WATCH");
+-        while (e && *e && n < SPU_WATCH_MAX) {
+-            s_spu_ls_watch[n++] = (unsigned)strtoul(e, (char**)&e, 0) & ~0xFu;
+-            while (*e == ',' || *e == ' ') e++;
+-        }
+-        g_spu_ls_watch_n = n;
+-    }
+-    *out_n = g_spu_ls_watch_n;
+-    return s_spu_ls_watch;
+-}
+-void spu_ls_watch_slow(uint32_t lsa, int is_write, const uint8_t* p, uint32_t pc, uint32_t lr)
+-{
+-    int n; spu_ls_watch_list(&n);
+-    if (!n) return;
+-    uint32_t a = lsa & (SPU_LS_MASK & ~0xFu);
+-    for (int i = 0; i < g_spu_ls_watch_n; i++) {
+-        if (s_spu_ls_watch[i] == a) {
+-            fprintf(stderr, "[spu-watch %s 0x%05X pc=0x%05X lr=0x%05X] "
+-                "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X\n",
+-                is_write ? "WR" : "rd", a, pc, lr,
+-                p[0],p[1],p[2],p[3], p[4],p[5],p[6],p[7],
+-                p[8],p[9],p[10],p[11], p[12],p[13],p[14],p[15]);
+-            fflush(stderr);
+-            break;
+-        }
+-    }
+-}
+-
++/* Called after an SPU atomic commits a 128-byte line, with the lock-line lock
++ * released. cellSpurs sets it so a PPU blocked in cellSpursEventFlagWait wakes
++ * when a task sets the flag, instead of on its next 2 ms poll. */
++void (*g_spu_line_commit_hook)(uint32_t line) = 0;
++/* spu_workload.c: wakes tasks parked in WAIT_SIGNAL on that line's taskset. */
++void spu_taskset_line_committed(uint32_t line);
++/* SPU_LS_WATCH=0x1BE80[,0x927D80...]: watch up to 4 16-byte LS lines (reads
++ * and writes) in every SPU image. See spu_ls_watch_hit2 for the fast path. */
++#define SPU_WATCH_MAX 4
++int g_spu_ls_watch_n = -1;
++static unsigned s_spu_ls_watch[SPU_WATCH_MAX];
++unsigned* spu_ls_watch_list(int* out_n)
++{
++    if (g_spu_ls_watch_n < 0) {
++        int n = 0; const char* e = getenv("SPU_LS_WATCH");
++        while (e && *e && n < SPU_WATCH_MAX) {
++            s_spu_ls_watch[n++] = (unsigned)strtoul(e, (char**)&e, 0) & ~0xFu;
++            while (*e == ',' || *e == ' ') e++;
++        }
++        g_spu_ls_watch_n = n;
++    }
++    *out_n = g_spu_ls_watch_n;
++    return s_spu_ls_watch;
++}
++void spu_ls_watch_slow(uint32_t lsa, int is_write, const uint8_t* p, uint32_t pc, uint32_t lr)
++{
++    int n; spu_ls_watch_list(&n);
++    if (!n) return;
++    uint32_t a = lsa & (SPU_LS_MASK & ~0xFu);
++    for (int i = 0; i < g_spu_ls_watch_n; i++) {
++        if (s_spu_ls_watch[i] == a) {
++            fprintf(stderr, "[spu-watch %s 0x%05X pc=0x%05X lr=0x%05X] "
++                "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X\n",
++                is_write ? "WR" : "rd", a, pc, lr,
++                p[0],p[1],p[2],p[3], p[4],p[5],p[6],p[7],
++                p[8],p[9],p[10],p[11], p[12],p[13],p[14],p[15]);
++            fflush(stderr);
++            break;
++        }
++    }
++}
++
+ static SPU_TLS jmp_buf s_spu_halt_env;
+ static SPU_TLS int     s_spu_halt_armed = 0;
+ 
+@@ -263,7 +263,8 @@ int spu_run_with_halt(void (*entry)(spu_context*), spu_context* ctx)
+          * calls drain inside their own call brackets (see the lifter). */
+         entry(ctx);
+         { static int _e = 0;
+-          if (getenv("SPU_ARGWATCH") && _e < 8) { _e++;
++          static int s_aw = -1; if (s_aw < 0) s_aw = getenv("SPU_ARGWATCH") ? 1 : 0;
++          if (s_aw && _e < 8) { _e++;
+               fprintf(stderr, "[argwatch] after entry(): img=%d pc=0x%05X "
+                       "r2=0x%08X r3=0x%08X r4=0x%08X\n", ctx->image_id,
+                       (uint32_t)ctx->pc & SPU_LS_MASK, ctx->gpr[2]._u32[0],
+@@ -317,15 +318,29 @@ static DWORD WINAPI spu_pcsample_thread(LPVOID p)
+     }
+ }
+ 
++/* Bumped whenever a context's engine is freed: invalidates mfc_for's
++ * per-thread cache (a new context may reuse the freed address). */
++static volatile LONG s_mfc_gen = 1;
++
+ static mfc_engine* mfc_for(spu_context* ctx)
+ {
+-    { static volatile LONG started = 0; const char* e;
+-      if (!started && (e = getenv("SPU_PCSAMPLE")) && !InterlockedExchange(&started, 1))
+-          CreateThread(NULL, 0, spu_pcsample_thread, (LPVOID)(uintptr_t)(atoi(e) * 1000), 0, NULL); }
++    /* Caminho quente (todo rdch/wrch de canal MFC): o getenv e a busca na
++     * lista com lock pesavam no perfil do áudio. A última resposta fica em
++     * cache por thread -- cada contexto SPU roda numa thread por vez, e a
++     * entrada de um contexto nunca é removida enquanto ele roda. */
++    static _Thread_local spu_context* t_ctx;
++    static _Thread_local mfc_engine*  t_mfc;
++    static _Thread_local LONG         t_gen;
++    if (ctx == t_ctx && t_mfc && t_gen == s_mfc_gen) return t_mfc;
++    { static volatile LONG started = 0; static int checked = 0; const char* e;
++      if (!checked) { checked = 1;
++          if (!started && (e = getenv("SPU_PCSAMPLE")) && !InterlockedExchange(&started, 1))
++              CreateThread(NULL, 0, spu_pcsample_thread, (LPVOID)(uintptr_t)(atoi(e) * 1000), 0, NULL); } }
+     AcquireSRWLockShared(&s_mfc_claim_lock);
+     for (spu_mfc_slot* slot = s_mfc_slots; slot; slot = slot->next) {
+         if (slot->ctx == ctx) {
+             ReleaseSRWLockShared(&s_mfc_claim_lock);
++            t_ctx = ctx; t_mfc = &slot->mfc; t_gen = s_mfc_gen;
+             return &slot->mfc;
+         }
+     }
+@@ -357,6 +372,7 @@ static mfc_engine* mfc_for(spu_context* ctx)
+ void spu_mfc_release(spu_context* ctx)
+ {
+     if (!ctx) return;
++    InterlockedIncrement(&s_mfc_gen);
+     AcquireSRWLockExclusive(&s_mfc_claim_lock);
+     for (spu_mfc_slot** link = &s_mfc_slots; *link; link = &(*link)->next) {
+         if ((*link)->ctx != ctx) continue;
+@@ -767,10 +783,10 @@ static int spu_mfc_atomic(spu_context* ctx, uint32_t cmd)
+                       ctx->gpr[0]._u32[0] & SPU_LS_MASK, ea); }
+         ctx->resv_valid = 0;                           /* reservation consumed */
+         spu_lockline_unlock();
+-        if (ctx->atomic_stat == 0) {
+-            spu_taskset_line_committed(ea & ~127u);
+-            if (g_spu_line_commit_hook) g_spu_line_commit_hook(ea & ~127u);
+-        }
++        if (ctx->atomic_stat == 0) {
++            spu_taskset_line_committed(ea & ~127u);
++            if (g_spu_line_commit_hook) g_spu_line_commit_hook(ea & ~127u);
++        }
+         return 1;
+ 
+     case MFC_PUTLLUC_CMD:
+@@ -788,7 +804,7 @@ static int spu_mfc_atomic(spu_context* ctx, uint32_t cmd)
+         ctx->resv_valid = 0; ctx->atomic_stat = 2;   /* PUTLLUC complete */
+         spu_lockline_unlock();
+         spu_taskset_line_committed(ea & ~127u);
+-        if (g_spu_line_commit_hook) g_spu_line_commit_hook(ea & ~127u);
++        if (g_spu_line_commit_hook) g_spu_line_commit_hook(ea & ~127u);
+         return 1;
+ 
+     default:
+@@ -2092,9 +2108,9 @@ static int spu_smc_microstep(spu_context* ctx)
+                       " microstep set -- handing to the interpreter (steps=%d)\n",
+                       ctx->image_id, pc, w, steps); }
+         ctx->pc = pc;
+-        /* Stop at the drain's return point too: it sits mid-function, so it is
+-         * no lifted entry, and a job's return would otherwise run on through
+-         * the caller's code (GH3's song-freeze; see drain_ret_pc). */
++        /* Stop at the drain's return point too: it sits mid-function, so it is
++         * no lifted entry, and a job's return would otherwise run on through
++         * the caller's code (GH3's song-freeze; see drain_ret_pc). */
+         const uint32_t return_pc = ctx->drain_ret_pc;
+         uint32_t result = spu_interp_run_until(ctx, pc, return_pc);
+         /* A live interpreter rejoin is a transfer, not a host return. Nested
+diff --git a/runtime/spu/spu_context.h b/runtime/spu/spu_context.h
+index f46d415..7930def 100644
+--- a/runtime/spu/spu_context.h
++++ b/runtime/spu/spu_context.h
+@@ -39,17 +39,17 @@ extern "C" {
+  * Fires from every SPU image's spu_ls_read128/write128. Cheap: one cached
+  * compare on the hot path when disabled.
+  * -----------------------------------------------------------------------*/
+-/* The check sits on every spu_ls_read128/write128, so the disabled case must
+- * be one load and a branch: it was a real call (the function-local statics
+- * kept it out of line) and ~9% of GH3's FMOD mixer task. The list lives in
+- * spu_channels.c; g_spu_ls_watch_n is -1 until the first check reads the env. */
+-extern int g_spu_ls_watch_n;
+-void spu_ls_watch_slow(uint32_t lsa, int is_write, const uint8_t* p, uint32_t pc, uint32_t lr);
+-unsigned* spu_ls_watch_list(int* out_n);   /* the armed lines (n may be 0) */
++/* The check sits on every spu_ls_read128/write128, so the disabled case must
++ * be one load and a branch: it was a real call (the function-local statics
++ * kept it out of line) and ~9% of GH3's FMOD mixer task. The list lives in
++ * spu_channels.c; g_spu_ls_watch_n is -1 until the first check reads the env. */
++extern int g_spu_ls_watch_n;
++void spu_ls_watch_slow(uint32_t lsa, int is_write, const uint8_t* p, uint32_t pc, uint32_t lr);
++unsigned* spu_ls_watch_list(int* out_n);   /* the armed lines (n may be 0) */
+ static inline void spu_ls_watch_hit2(uint32_t lsa, int is_write, const uint8_t* p,
+                                      uint32_t pc, uint32_t lr) {
+-    if (__builtin_expect(g_spu_ls_watch_n == 0, 1)) return;
+-    spu_ls_watch_slow(lsa, is_write, p, pc, lr);
++    if (__builtin_expect(g_spu_ls_watch_n == 0, 1)) return;
++    spu_ls_watch_slow(lsa, is_write, p, pc, lr);
+ }
+ static inline void spu_ls_watch_hit(uint32_t lsa, int is_write, const uint8_t* p) {
+     spu_ls_watch_hit2(lsa, is_write, p, 0, 0);
+@@ -376,22 +376,22 @@ typedef struct spu_context {
+     uint64_t list_stall_ea_base[32];      /* ea base (hi32 carries), per tag */
+     uint32_t list_stall_cmd[32];          /* base (non-list) MFC command, per tag */
+ 
+-    /* Register file saved when an interrupt is taken, restored at its iret
+-     * (spu_drain.c). Per context: it used to be an 8-slot global table claimed
+-     * without a lock, and two SPU threads taking interrupts at once could take
+-     * the same slot -- one lost its save and returned from the handler with
+-     * the handler's registers. */
+-    int      irq_saved;
+-    uint32_t irq_resume_pc;
+-    u128     irq_gpr[128];
+-
+-    /* Return pc of the innermost spu_drain_call (0 = none). The interpreter
+-     * rejoins there: a return point sits mid-function, so it is no lifted
+-     * entry, and without this the interpreter ran a job's return straight on
+-     * through the caller's code until the next lifted entry -- GH3's job
+-     * manager then ran its buffer loop a second time on the job's registers
+-     * and died in its own assert (the song-freeze). */
+-    uint32_t drain_ret_pc;
++    /* Register file saved when an interrupt is taken, restored at its iret
++     * (spu_drain.c). Per context: it used to be an 8-slot global table claimed
++     * without a lock, and two SPU threads taking interrupts at once could take
++     * the same slot -- one lost its save and returned from the handler with
++     * the handler's registers. */
++    int      irq_saved;
++    uint32_t irq_resume_pc;
++    u128     irq_gpr[128];
++
++    /* Return pc of the innermost spu_drain_call (0 = none). The interpreter
++     * rejoins there: a return point sits mid-function, so it is no lifted
++     * entry, and without this the interpreter ran a job's return straight on
++     * through the caller's code until the next lifted entry -- GH3's job
++     * manager then ran its buffer loop a second time on the job's registers
++     * and died in its own assert (the song-freeze). */
++    uint32_t drain_ret_pc;
+ } spu_context;
+ 
+ /* Reserved LS addresses (inside the kernel area, below the 0xA00 policy-module
+@@ -482,26 +482,26 @@ static inline void spu_ls_write32(spu_context* ctx, uint32_t lsa, uint32_t val)
+ #define SPU_LS_FAST 1
+ #endif
+ 
+-/* Debug probes of spu_ls_read128, out of line: inlined they kept every LS
+- * load a real call (~10% of GH3's FMOD mixer task). g_spu_ls_probe is -1
+- * until the first call reads SPU_LS_LOWREAD, then 0/1. */
+-
+-/* The diagnostic gates the inline helpers below read. Defined here rather than
+- * in spu_channels.c, as one merged definition per program (selectany / weak),
+- * so every target that includes this header links whether or not it builds
+- * spu_channels.c -- the SPU unit tests and sync_stress do not. */
+-#if defined(_MSC_VER)
+-#  define SPU_GATE __declspec(selectany)
+-#else
+-#  define SPU_GATE __attribute__((weak))
+-#endif
+-SPU_GATE int g_spu_ls_probe   = -1;  /* spu_ls_read_probe (SPU_LS_LOWREAD)      */
+-SPU_GATE int g_spu_smc_watch  = -1;  /* spu_ls_write_probe_smc (SPU_SMC_WATCH)  */
+-SPU_GATE int g_wws_code_probe = 0;   /* WWS code-buffer resolution, capped      */
+-SPU_GATE int g_wws_read_probe = 0;
+-static __attribute__((noinline, cold)) void spu_ls_read_probe(const spu_context* ctx, uint32_t lsa)
++/* Debug probes of spu_ls_read128, out of line: inlined they kept every LS
++ * load a real call (~10% of GH3's FMOD mixer task). g_spu_ls_probe is -1
++ * until the first call reads SPU_LS_LOWREAD, then 0/1. */
++
++/* The diagnostic gates the inline helpers below read. Defined here rather than
++ * in spu_channels.c, as one merged definition per program (selectany / weak),
++ * so every target that includes this header links whether or not it builds
++ * spu_channels.c -- the SPU unit tests and sync_stress do not. */
++#if defined(_MSC_VER)
++#  define SPU_GATE __declspec(selectany)
++#else
++#  define SPU_GATE __attribute__((weak))
++#endif
++SPU_GATE int g_spu_ls_probe   = -1;  /* spu_ls_read_probe (SPU_LS_LOWREAD)      */
++SPU_GATE int g_spu_smc_watch  = -1;  /* spu_ls_write_probe_smc (SPU_SMC_WATCH)  */
++SPU_GATE int g_wws_code_probe = 0;   /* WWS code-buffer resolution, capped      */
++SPU_GATE int g_wws_read_probe = 0;
++static __attribute__((noinline, cold)) void spu_ls_read_probe(const spu_context* ctx, uint32_t lsa)
+ {
+-    if (g_spu_ls_probe < 0) g_spu_ls_probe = getenv("SPU_LS_LOWREAD") ? 1 : 0;
++    if (g_spu_ls_probe < 0) g_spu_ls_probe = getenv("SPU_LS_LOWREAD") ? 1 : 0;
+     /* SPU_LS_LOWREAD=1: a job that reads its OWN first bytes as data is
+      * dereferencing a null base -- the job binary loads at LS 0, so [NULL+off]
+      * returns its own instruction words. Report each distinct low address once,
+@@ -535,18 +535,42 @@ static __attribute__((noinline, cold)) void spu_ls_read_probe(const spu_context*
+                     off >> 6, (off >> 2) & 0xF, off);
+         }
+     }
+-}
+-
+-static inline u128 spu_ls_read128(const spu_context* ctx, uint32_t lsa)
+-{
+-    u128 v;
+-    if (__builtin_expect(g_spu_ls_probe != 0, 0) || (ctx->image_id == 2 && ctx->policy_mode))
+-        spu_ls_read_probe(ctx, lsa);
++}
++
++/* SPU_RELEASE_FAST (definido pelo port nos programas SPU liftados): sem os
++ * ganchos de depuração (sondas e watchpoints de LS) no caminho de cada
++ * load/store -- eram leituras de globais e desvios a cada acesso -- e com a
++ * troca de bytes do quadword num só pshufb. */
++#if defined(SPU_RELEASE_FAST)
++#define SPU_LS_HOOKS 0
++#else
++#define SPU_LS_HOOKS 1
++#endif
++#if defined(SPU_RELEASE_FAST) && defined(__SSSE3__)
++#include <tmmintrin.h>
++#define SPU_LS_PSHUFB 1
++static inline __m128i spu__ls_bswap_mask(void)
++{
++    return _mm_setr_epi8(3,2,1,0, 7,6,5,4, 11,10,9,8, 15,14,13,12);
++}
++#endif
++
++static inline u128 spu_ls_read128(const spu_context* ctx, uint32_t lsa)
++{
++    u128 v;
++    if (SPU_LS_HOOKS && (__builtin_expect(g_spu_ls_probe != 0, 0) || (ctx->image_id == 2 && ctx->policy_mode)))
++        spu_ls_read_probe(ctx, lsa);
+     lsa &= SPU_LS_MASK & ~0xFu;
+     const uint8_t* p = &ctx->ls[lsa];
+-    spu_ls_watch_hit2(lsa, 0, p, (uint32_t)ctx->pc & SPU_LS_MASK,
+-                      ctx->gpr[0]._u32[0] & SPU_LS_MASK);
+-#if SPU_LS_FAST
++    if (SPU_LS_HOOKS)
++        spu_ls_watch_hit2(lsa, 0, p, (uint32_t)ctx->pc & SPU_LS_MASK,
++                          ctx->gpr[0]._u32[0] & SPU_LS_MASK);
++#if defined(SPU_LS_PSHUFB)
++    {
++        const __m128i x = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)p), spu__ls_bswap_mask());
++        memcpy(&v, &x, 16);
++    }
++#elif SPU_LS_FAST
+     uint32_t w0, w1, w2, w3;
+     memcpy(&w0, p,      4); memcpy(&w1, p + 4,  4);
+     memcpy(&w2, p + 8,  4); memcpy(&w3, p + 12, 4);
+@@ -563,7 +587,7 @@ static inline u128 spu_ls_read128(const spu_context* ctx, uint32_t lsa)
+     return v;
+ }
+ 
+-static __attribute__((noinline, cold)) void spu_ls_write_probe_pre(spu_context* ctx, uint32_t lsa, u128 val)
++static __attribute__((noinline, cold)) void spu_ls_write_probe_pre(spu_context* ctx, uint32_t lsa, u128 val)
+ {
+     if (lsa == 0x1320 && ctx->image_id == 2 && ctx->policy_mode) {
+         extern int g_wws_code_probe;   /* defined in spu_channels.c, capped */
+@@ -591,12 +615,12 @@ static __attribute__((noinline, cold)) void spu_ls_write_probe_pre(spu_context*
+             #undef _RD32
+         }
+     }
+-}
+-/* SPU_SMC_WATCH, out of line: g_spu_smc_watch is -1 until read, then 0/1. */
+-extern int g_spu_smc_watch;
+-static __attribute__((noinline, cold)) void spu_ls_write_probe_smc(spu_context* ctx, uint32_t lsa, const uint8_t* p)
+-{
+-    if (g_spu_smc_watch < 0) g_spu_smc_watch = getenv("SPU_SMC_WATCH") ? 1 : 0;
++}
++/* SPU_SMC_WATCH, out of line: g_spu_smc_watch is -1 until read, then 0/1. */
++extern int g_spu_smc_watch;
++static __attribute__((noinline, cold)) void spu_ls_write_probe_smc(spu_context* ctx, uint32_t lsa, const uint8_t* p)
++{
++    if (g_spu_smc_watch < 0) g_spu_smc_watch = getenv("SPU_SMC_WATCH") ? 1 : 0;
+     /* SPU_SMC_WATCH=<img>: self-modification detector. Log any store whose
+      * target LS line falls inside that image's CODE segment (the segment
+      * bounds come from SPU_SMC_LO/HI, default the pm_wwsjob range 0xA00..
+@@ -616,38 +640,45 @@ static __attribute__((noinline, cold)) void spu_ls_write_probe_smc(spu_context*
+       } }
+ }
+ 
+-static inline void spu_ls_write128(spu_context* ctx, uint32_t lsa, u128 val)
+-{
+-    lsa &= SPU_LS_MASK & ~0xFu;
+-    uint8_t* p = &ctx->ls[lsa];
+-    /* WWS code-buffer probe: LBP's ChangeLoadToRunJob dispatches to LS[0x1320]
+-     * (= lsaJobCodeBuffer in LBP's layout) + entryOffset. When TecRunJob writes
+-     * that code-buffer LS address, dump the RunJob decision inputs so we can see
+-     * why it resolves to an empty buffer: the resolved address, the whole
+-     * bufferSetArray (0xDF0), and the live loadCommands (0xC00) whose RunJob
+-     * command (commandNum==5) names the code buffer set. */
+-    if (lsa == 0x1320 && ctx->image_id == 2 && ctx->policy_mode)
+-        spu_ls_write_probe_pre(ctx, lsa, val);
+-#if SPU_LS_FAST
+-    uint32_t w0 = SPU_BSWAP32(val._u32[0]), w1 = SPU_BSWAP32(val._u32[1]);
+-    uint32_t w2 = SPU_BSWAP32(val._u32[2]), w3 = SPU_BSWAP32(val._u32[3]);
+-    memcpy(p,      &w0, 4); memcpy(p + 4,  &w1, 4);
+-    memcpy(p + 8,  &w2, 4); memcpy(p + 12, &w3, 4);
+-#else
+-    for (int i = 0; i < 4; i++) {
+-        uint32_t w = val._u32[i];
+-        p[i*4]     = (uint8_t)(w >> 24);
+-        p[i*4 + 1] = (uint8_t)(w >> 16);
+-        p[i*4 + 2] = (uint8_t)(w >>  8);
+-        p[i*4 + 3] = (uint8_t)w;
+-    }
+-#endif
+-    spu_ls_watch_hit2(lsa, 1, p, (uint32_t)ctx->pc & SPU_LS_MASK,
+-                      ctx->gpr[0]._u32[0] & SPU_LS_MASK);
+-    if (__builtin_expect(g_spu_smc_watch != 0, 0))
+-        spu_ls_write_probe_smc(ctx, lsa, p);
+-}
+-
++static inline void spu_ls_write128(spu_context* ctx, uint32_t lsa, u128 val)
++{
++    lsa &= SPU_LS_MASK & ~0xFu;
++    uint8_t* p = &ctx->ls[lsa];
++    /* WWS code-buffer probe: LBP's ChangeLoadToRunJob dispatches to LS[0x1320]
++     * (= lsaJobCodeBuffer in LBP's layout) + entryOffset. When TecRunJob writes
++     * that code-buffer LS address, dump the RunJob decision inputs so we can see
++     * why it resolves to an empty buffer: the resolved address, the whole
++     * bufferSetArray (0xDF0), and the live loadCommands (0xC00) whose RunJob
++     * command (commandNum==5) names the code buffer set. */
++    if (SPU_LS_HOOKS && lsa == 0x1320 && ctx->image_id == 2 && ctx->policy_mode)
++        spu_ls_write_probe_pre(ctx, lsa, val);
++#if defined(SPU_LS_PSHUFB)
++    {
++        __m128i x; memcpy(&x, &val, 16);
++        _mm_storeu_si128((__m128i*)p, _mm_shuffle_epi8(x, spu__ls_bswap_mask()));
++    }
++#elif SPU_LS_FAST
++    uint32_t w0 = SPU_BSWAP32(val._u32[0]), w1 = SPU_BSWAP32(val._u32[1]);
++    uint32_t w2 = SPU_BSWAP32(val._u32[2]), w3 = SPU_BSWAP32(val._u32[3]);
++    memcpy(p,      &w0, 4); memcpy(p + 4,  &w1, 4);
++    memcpy(p + 8,  &w2, 4); memcpy(p + 12, &w3, 4);
++#else
++    for (int i = 0; i < 4; i++) {
++        uint32_t w = val._u32[i];
++        p[i*4]     = (uint8_t)(w >> 24);
++        p[i*4 + 1] = (uint8_t)(w >> 16);
++        p[i*4 + 2] = (uint8_t)(w >>  8);
++        p[i*4 + 3] = (uint8_t)w;
++    }
++#endif
++    if (SPU_LS_HOOKS) {
++        spu_ls_watch_hit2(lsa, 1, p, (uint32_t)ctx->pc & SPU_LS_MASK,
++                          ctx->gpr[0]._u32[0] & SPU_LS_MASK);
++        if (__builtin_expect(g_spu_smc_watch != 0, 0))
++            spu_ls_write_probe_smc(ctx, lsa, p);
++    }
++}
++
+ /* ---------------------------------------------------------------------------
+  * Preferred slot extraction
+  *
+diff --git a/runtime/spu/spu_workload.c b/runtime/spu/spu_workload.c
+index 2008961..2b95cd7 100644
+--- a/runtime/spu/spu_workload.c
++++ b/runtime/spu/spu_workload.c
+@@ -505,6 +505,16 @@ void spu_taskset_start_pending(uint32_t taskset_ea)
+ 
+ static void spu_async_run(spu_async_job* j)
+ {
++    /* Porta de evento por instância do SPURS (cellSpurs.c): o código SPU desta
++     * thread pertence ao SPURS dono do taskset. CSTS_SPURS = +0x60 (be u64). */
++    { extern void spurs_set_current_instance(uint32_t);
++      extern uint8_t* vm_base;
++      uint32_t inst = 0;
++      if (j->taskset_ea && vm_base) {
++          const uint8_t* q = vm_base + j->taskset_ea + 0x60 + 4;   /* metade baixa do u64 BE */
++          inst = ((uint32_t)q[0] << 24) | ((uint32_t)q[1] << 16) | ((uint32_t)q[2] << 8) | q[3];
++      }
++      spurs_set_current_instance(inst); }
+     spu_taskset_mark(j->taskset_ea, j->taskid, 1);
+     /* Persistent per-taskset LS: acquire (+serialize) the taskset's LS, or fall
+      * back to a fresh per-dispatch LS when disabled / no taskset. */
+@@ -884,7 +894,28 @@ int spu_workload_dispatch_job(const uint8_t* image, uint32_t image_size,
+ {
+     if (!image || image_size == 0) return 0;
+ 
+-    uint64_t fp = spu_workload_fingerprint(image, image_size);
++    /* O fingerprint percorre o binário inteiro (dezenas de KB) a cada job.
++     * Cache por thread de (endereço, tamanho, amostra das bordas) -> fp: o
++     * binário de um job fica no mesmo lugar e não muda entre execuções; a
++     * amostra pega o caso de outro binário carregado no mesmo endereço. */
++    uint64_t fp = 0;
++    {
++        static _Thread_local struct { const uint8_t* img; uint32_t size; uint64_t edge, fp; } t_fpc[8];
++        static _Thread_local unsigned t_fpc_next;
++        const uint32_t edge_n = image_size < 128u ? image_size : 128u;
++        const uint64_t edge = spu_workload_fingerprint(image, edge_n) ^
++                              spu_workload_fingerprint(image + image_size - edge_n, edge_n);
++        int hit = 0;
++        for (unsigned k = 0; k < 8; k++)
++            if (t_fpc[k].img == image && t_fpc[k].size == image_size && t_fpc[k].edge == edge) {
++                fp = t_fpc[k].fp; hit = 1; break;
++            }
++        if (!hit) {
++            fp = spu_workload_fingerprint(image, image_size);
++            const unsigned k = t_fpc_next++ & 7u;
++            t_fpc[k].img = image; t_fpc[k].size = image_size; t_fpc[k].edge = edge; t_fpc[k].fp = fp;
++        }
++    }
+     spu_lifted_entry_fn fn = NULL;
+     int image_id = 0;
+     for (unsigned i = 0; i < s_registry_count; i++)
+diff --git a/runtime/spu/spurs_job.c b/runtime/spu/spurs_job.c
+index bb8f122..0be4e19 100644
+--- a/runtime/spu/spurs_job.c
++++ b/runtime/spu/spurs_job.c
+@@ -123,8 +123,14 @@ static uint8_t  s_job_ls[SPU_LS_SIZE];
+ static int      s_job_ls_valid;
+ uint32_t        g_spurs_job_ls_handle;   /* set by the chain walker */
+ 
++/* Copiar 256 KB a cada job custava ~10% do tempo dos jobs de render; só passa
++ * a copiar depois que alguém pede o LS por aqui (o primeiro pedido vê o job
++ * seguinte). */
++static volatile int s_job_ls_wanted;
++
+ const uint8_t* spurs_job_ls_for_handle(uint32_t handle)
+ {
++    s_job_ls_wanted = 1;
+     if (!s_job_ls_valid || !handle || handle != g_spurs_job_ls_handle) return 0;
+     return s_job_ls;
+ }
+@@ -179,8 +185,13 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+         return -1;
+     }
+ 
+-    uint8_t* ls = (uint8_t*)calloc(1, SPU_LS_SIZE);
++    /* LS por thread, reaproveitado: calloc/free de 256 KB por job pesava no
++     * perfil (os jobs de render rodam ~6 cadeias por frame). Zerado como antes. */
++    static _Thread_local uint8_t* t_ls;
++    if (!t_ls) t_ls = (uint8_t*)malloc(SPU_LS_SIZE);
++    uint8_t* ls = t_ls;
+     if (!ls) return -1;
++    memset(ls, 0, SPU_LS_SIZE);
+ 
+     /* ---- binary at LS 0 (PIC, so delta 0 keeps the lifted addresses) ---- */
+     memcpy(ls, vm_base + ea_bin, size_bin);
+@@ -298,7 +309,8 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+      * its DMA and atomic EAs from these words, so when a job spins on a
+      * lock-line address that is not backed, this is what to read first. */
+     { static int _d = 0;
+-      if (getenv("SPURS_JOB_DESCDUMP") && PS3_LOG_FIRST(_d, 4)) {
++      static int s_dd = -1; if (s_dd < 0) s_dd = getenv("SPURS_JOB_DESCDUMP") ? 1 : 0;
++      if (s_dd && PS3_LOG_FIRST(_d, 4)) {
+           fprintf(stderr, "[spurs-job] desc @0x%08X (%u bytes):", job_ea, dsz);
+           for (uint32_t o = 0; o < dsz && o < 128; o += 4) {
+               if ((o & 31) == 0) fprintf(stderr, "\n    +%02X:", o);
+@@ -328,7 +340,9 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+      * The header's input-DMA-list/io fields are legitimately zero for it. Dump
+      * the user data + that command block so the bail path is attributable. */
+     uint32_t dump_cmd = 0;
+-    if (getenv("SPURS_JOB_DUMP")) {
++    static int s_jd0 = -1;
++    if (s_jd0 < 0) s_jd0 = getenv("SPURS_JOB_DUMP") ? 1 : 0;
++    if (s_jd0) {
+         uint64_t ud  = g64(job_ea + JH_SIZE);        /* desc+0x30 */
+         uint32_t cmd = (uint32_t)ud;                 /* low word = EA */
+         fprintf(stderr, "[spurs-job] job 0x%08X userdata: %016llX %016llX %016llX %016llX\n",
+@@ -401,7 +415,7 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+      * comment here claimed they carried the title's bus counts; they do not,
+      * and feeding them into the completion event turned 0x40000000 into a 1 GB
+      * allocation request. Kept because the printf service needs them. */
+-    memcpy(s_job_ls, ctx.ls, SPU_LS_SIZE);   /* keep the store readable */
++    if (s_job_ls_wanted) memcpy(s_job_ls, ctx.ls, SPU_LS_SIZE);   /* keep the store readable */
+     /* TEMP SPURS_JOB_LSWORD=<img>:<lsa>: after a job of that image, print the
+      * LS word at lsa and every other LS offset holding the same value. */
+     { static int img = -2; static uint32_t lsa; static int n = 0;
+@@ -433,7 +447,9 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+           fprintf(stderr, "[spurs-job] job 0x%08X posted mbox=0x%08X intr=0x%08X\n",
+                   job_ea, g_spurs_job_mbox, g_spurs_job_mbox_intr); }
+ 
+-    if (getenv("SPURS_JOB_DUMP")) {
++    static int s_jdump = -1;
++    if (s_jdump < 0) s_jdump = getenv("SPURS_JOB_DUMP") ? 1 : 0;
++    if (s_jdump) {
+         fprintf(stderr, "[spurs-job] job 0x%08X exit: status=0x%X stop=0x%X pc=0x%05X\n",
+                 job_ea, ctx.status, ctx.stop_code, ctx.pc);
+         /* Post-run view of the same command block: the game polls result/status
+@@ -453,6 +469,5 @@ int spu_run_spurs_job(spu_lifted_entry_fn entry, int image_id,
+     spu_mfc_release(&ctx);
+     spu_coh_unregister(&ctx);   /* stack local: out of the reserver set */
+     { extern void spu_mfc_release(spu_context*); spu_mfc_release(&ctx); }
+-    free(ls);
+     return 0;
+ }
+diff --git a/runtime/syscalls/sys_fs.c b/runtime/syscalls/sys_fs.c
+index f076ef8..974ee1c 100644
+--- a/runtime/syscalls/sys_fs.c
++++ b/runtime/syscalls/sys_fs.c
+@@ -149,7 +149,49 @@ void ps3_vfs_ps3game_fallback(char* path, size_t cap)
+     snprintf(path, cap, "%s", alt);
+ }
+ 
++/* PS3_VFS_REDIRECT="<nome>=<substituto>[;...]": se o caminho do host
++ * termina em /<nome> e <substituto> existe na mesma pasta, abre o substituto
++ * (port Bomberman: media.zip=media_ptbr.zip para a tradução PT-BR). Vale
++ * para todas as camadas (cellFs e sys_fs), então stat e open concordam. */
++void ps3_vfs_redirect(char* path, size_t cap)
++{
++    static const char* spec = NULL; static int init = 0;
++    if (!init) { spec = getenv("PS3_VFS_REDIRECT"); init = 1; }
++    if (!spec || !*spec || !path) return;
++    const size_t plen = strlen(path);
++    const char* p = spec;
++    while (*p) {
++        const char* eq = strchr(p, '=');
++        if (!eq) return;
++        const char* end = strchr(eq + 1, ';');
++        if (!end) end = eq + strlen(eq);
++        const size_t nlen = (size_t)(eq - p), slen = (size_t)(end - eq - 1);
++        if (nlen && slen && plen > nlen && strncmp(path + plen - nlen, p, nlen) == 0 &&
++            (path[plen - nlen - 1] == '/' || path[plen - nlen - 1] == '\\')) {
++            char alt[1200];
++            const size_t dir = plen - nlen;
++            if (dir + slen + 1 <= sizeof alt) {
++                memcpy(alt, path, dir); memcpy(alt + dir, eq + 1, slen); alt[dir + slen] = 0;
++                struct stat st;
++                if (stat(alt, &st) == 0 && strlen(alt) + 1 <= cap) {
++                    static int logged = 0;
++                    if (!logged++) fprintf(stderr, "[vfs] redirecionado: %s -> %s\n", path, alt);
++                    strcpy(path, alt);
++                }
++            }
++            return;
++        }
++        p = *end ? end + 1 : end;
++    }
++}
++
++static void sys_fs_translate_path_impl(const char* ps3_path, char* host_path, int host_path_size);
+ void sys_fs_translate_path(const char* ps3_path, char* host_path, int host_path_size)
++{
++    sys_fs_translate_path_impl(ps3_path, host_path, host_path_size);
++    ps3_vfs_redirect(host_path, (size_t)host_path_size);
++}
++static void sys_fs_translate_path_impl(const char* ps3_path, char* host_path, int host_path_size)
+ {
+     /* Lazily adopt PS3_VFS_ROOT if the root is still the default ".", so this
+      * sys_fs layer points at the same place as the cellFs layer (ppu_vfs_root). */

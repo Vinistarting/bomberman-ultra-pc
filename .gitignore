@@ -1,0 +1,37 @@
+# ── Conteúdo do jogo e licenças: NUNCA vão para o repositório ──
+# Cada usuário extrai o próprio PKG e aponta o próprio .rap no launcher.
+game/
+*.rap
+*.rif
+*.pkg
+*.edat
+*.sdat
+act.dat
+idps*
+EBOOT.BIN
+EBOOT.elf
+media.zip
+media_ptbr.zip
+Bman.bnk
+*.part[0-9][0-9][0-9]
+
+# ── Gerado a partir dos arquivos do jogo pelo tools/build_cross.sh ──
+recompiled/
+analysis/
+spu_jobs/
+spu_gen*/
+build-assets/
+traducao/strings_ptbr.xus
+src/bomberman.ico
+launcher/bomberman.ico
+
+# ── Build e execução ──
+build*/
+bin/
+logs/
+user/
+launcher.ini
+*.exe
+*.obj
+*.o
+__pycache__/

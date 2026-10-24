@@ -1,0 +1,66 @@
+# Bomberman ULTRA (NPEB00076) -- configuração do pipeline de recompilação
+# Documenta as escolhas do port; o tools/build_cross.sh usa os mesmos valores.
+
+[input]
+elf_path = "game/PS3_GAME/USRDIR/EBOOT.elf"   # SELF NPDRM decriptado com o RAP
+sfo_path = "game/PS3_GAME/PARAM.SFO"
+title_id = "NPEB00076"
+content_id = "EP0555-NPEB00076_00-BOMBERMANGAME001"
+
+[output]
+output_dir = "recompiled/"
+func_prefix = "recomp_"
+generate_func_table = true
+
+[binary]
+# Valores medidos por tools/analyze_eboot.py (analysis/elf_analysis.json)
+entry_opd = 0x1B2158
+entry_func = 0x10230
+toc = 0x1BC488
+text = [0x10000, 0x1A4348]        # R-X, 1.58 MB
+data = [0x1B0000, 0x2EF788]       # RW, inclui BSS de 1.1 MB
+opd_functions = 1128
+bl_targets = 2184
+spu_images = ["MultiStream (audio) @ ELF+0x174D00"]
+
+[modules]
+# 16 módulos / 213 funções importadas. Todos via HLE do ps3recomp;
+# as 31 funções que o runtime não tem estão em src/bomberman_hooks.cpp.
+sysPrxForUser   = "hle"
+cellSysutil     = "hle"
+cellSysutilAvc2 = "hle"   # voice chat -> no-op (hooks)
+cellGcmSys      = "hle"
+cellSysmodule   = "hle"
+cellAudio       = "hle"
+cellSpurs       = "hle"   # MultiStream/SCREAM (SPU) -- lift SPU via PORT_SPU_INPUTS
+sys_io          = "hle"   # cellPad/cellKb/cellMouse
+sys_fs          = "hle"
+sys_net         = "hle"
+cellNetCtl      = "hle"
+cellKey2char    = "hle"
+cellRtc         = "hle"
+sceNp           = "hle"   # PSN offline (hooks)
+sceNp2          = "hle"   # Matching2 offline (hooks)
+sceNpTrophy     = "hle"
+
+[vfs]
+# /app_home/ -> game/   (media.zip, Bman.bnk)
+# /dev_hdd0/ -> user/dev_hdd0 (saves) | /dev_hdd1/ -> user/dev_hdd1 (cache.dat/idx)
+# /dev_flash/ -> user/dev_flash (vazio: o jogo não lê nada do firmware --
+#               as strings flashMP3/flashATRAC.pic no EBOOT não têm referências)
+vfs_root = "game"
+hdd0 = "user/dev_hdd0"
+hdd1 = "user/dev_hdd1"
+
+[graphics]
+backend = "d3d12"
+width = 1280      # sobrescrito pelo launcher (BMU_WIDTH/BMU_HEIGHT)
+height = 720
+
+[audio]
+backend = "wasapi"
+sample_rate = 48000
+
+[debug]
+log_hle_calls = false
+log_missing_nids = true
