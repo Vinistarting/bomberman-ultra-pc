@@ -79,7 +79,7 @@ Se você tem NVIDIA, um relato (funcionou ou não, com o `logs\bomberman.log`) a
 
 1. **Clone** este repositório e o ps3recomp, lado a lado:
    ```sh
-   git clone https://github.com/<seu-usuario>/bomberman-ultra-pc.git
+   git clone https://github.com/Vinistarting/bomberman-ultra-pc.git
    git clone https://github.com/sp00nznet/ps3recomp.git
    git -C ps3recomp checkout a6d76c895f77eb30b90a806c830544e61821b77f
    ```

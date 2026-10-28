@@ -42,7 +42,7 @@ Tested on **AMD** Radeon RX 580 (Windows 11, full game at 60 FPS) and **SwiftSha
 You need: your own European PKG and RAP; RPCS3 installed **or** its source code (our tools read the keys from `rpcs3/Crypto/key_vault.h`; no keys are shipped here); Linux or **WSL** with `git curl cmake ninja-build python3 python3-pip` and `pip install cryptography pillow`; about 2 GB free (a full build of both executables took 11 minutes on 2 cores).
 
 ```sh
-git clone https://github.com/<your-user>/bomberman-ultra-pc.git
+git clone https://github.com/Vinistarting/bomberman-ultra-pc.git
 git clone https://github.com/sp00nznet/ps3recomp.git
 git -C ps3recomp checkout a6d76c895f77eb30b90a806c830544e61821b77f
 cd bomberman-ultra-pc
