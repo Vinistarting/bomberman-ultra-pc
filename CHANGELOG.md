@@ -5,6 +5,8 @@
 - **Preparar jogo** agora pergunta de onde vêm os arquivos: **Selecionar o PKG do jogo** (recomendado) ou o jogo instalado no RPCS3.
 - O launcher localiza o PKG sozinho pelo cabeçalho (pasta do port e até 3 pastas acima, Downloads, Área de Trabalho, Documentos), qualquer que seja o nome do arquivo, ou deixa escolher; recusa PKGs de outra região.
 - O build extrai do PKG só o que o port usa, decripta o `EBOOT.BIN` com a licença `.rap` do usuário e confere o resultado pelo hash da versão europeia 01.00. As chaves públicas do PS3 vêm dos `key_vault` do RPCS3 num commit fixo, conferidos por SHA-256; nenhuma chave no repositório.
+- A preparação roda escondida, com uma barra de progresso animada no próprio launcher (e na barra de tarefas), etapa e tempo decorrido; o botão JOGAR vira CANCELAR. Erros aparecem numa mensagem com o motivo.
+- Correção: o Vulkan-Headers não configurava no Windows ("No CMAKE_C_COMPILER could be found"); agora usa a toolchain baixada, e o CMake recebe o Python embutido (SPIRV-Tools e ps3recomp precisam dele).
 - `aes_compat.py` funciona sem pacotes extras: usa a BCrypt do Windows (com autoteste FIPS-197) no Python embutido e tem AES em Python puro como último recurso.
 
 ## 1.1.0 — compilar no próprio Windows

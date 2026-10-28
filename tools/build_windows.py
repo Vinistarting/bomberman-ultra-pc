@@ -40,6 +40,7 @@ import sys
 import time
 import urllib.request
 import zipfile
+import re
 import zlib
 
 PS3RECOMP_COMMIT = "a6d76c895f77eb30b90a806c830544e61821b77f"
@@ -68,6 +69,9 @@ PKG_ITEMS = ("PARAM.SFO", "ICON0.PNG", "USRDIR/EBOOT.BIN", "USRDIR/media.zip", "
 # Hash dos segmentos PT_LOAD do EBOOT.elf europeu (NPEB00076, APP_VER 01.00):
 # o lift só é válido para exatamente este binário.
 EBOOT_SEGMENTS_SHA256 = "7eb0eafaf45f4a238d0f05f2ad404506c70e86421f37ee117e1301004d6f4935"
+
+NINJA_RE = re.compile(r"^\[(\d+)/(\d+)\]")                 # ninja: [n/total]
+LIFT_RE = re.compile(r"lifted (\d+)/(\d+) functions")      # ppu_lifter paralelo
 
 WIN = os.name == "nt"
 EXE = ".exe" if WIN else ""
@@ -107,7 +111,12 @@ class Build:
         self.cmake = a.cmake or os.path.join(self.tc, "cmake", "bin", "cmake" + EXE)
         self.ninja = a.ninja or os.path.join(self.tc, "ninja", "ninja" + EXE)
         self.mingw = os.path.abspath(a.llvm_mingw) if a.llvm_mingw else os.path.join(self.tc, "llvm-mingw")
-        self.python = sys.executable
+        self.python = os.path.abspath(a.python) if getattr(a, "python", None) else sys.executable
+        # CMake (SPIRV-Tools, ps3recomp) e scripts procuram "python" no PATH: o embutido.
+        os.environ["PATH"] = os.path.dirname(self.python) + os.pathsep + os.environ.get("PATH", "")
+        self.progress_mode = bool(getattr(a, "progress", False))
+        self.rng = self.phase_base = (0.0, 100.0)
+        self.title, self.detail, self.last_emit = "", "", None
         self.pkg = os.path.abspath(a.pkg) if getattr(a, "pkg", None) else None
         self.rap = os.path.abspath(a.rap) if getattr(a, "rap", None) else None
         self.rpcs3_crypto_dir = os.path.abspath(a.rpcs3_crypto) if getattr(a, "rpcs3_crypto", None) else None
@@ -118,8 +127,33 @@ class Build:
     # ---------------------------------------------------------------- util
     def say(self, msg):
         line = time.strftime("%H:%M:%S ") + msg
-        print(line, flush=True)
+        if not self.progress_mode:
+            print(line, flush=True)
         self.log.write(line + "\n"); self.log.flush()
+
+    # Progresso para o launcher (--progress): linhas "@@P <0-100> <etapa>|<detalhe>"
+    # no stdout; o launcher mostra numa barra em vez de um console.
+    def phase(self, lo, hi, title):
+        self.rng = self.phase_base = (lo, hi)
+        self.title = title
+        self.emit(0.0, "")
+
+    def emit(self, frac, detail=""):
+        if not self.progress_mode:
+            return
+        lo, hi = self.rng
+        pct = lo + max(0.0, min(1.0, frac)) * (hi - lo)
+        key = (round(pct, 1), self.title, detail)
+        if key == self.last_emit:
+            return
+        self.last_emit = key
+        print(f"@@P {pct:.1f} {self.title}|{detail}", flush=True)
+
+    def sub(self, lo, hi, detail=""):
+        """Passa a usar a fatia [lo, hi] (frações) da fase atual."""
+        base = self.phase_base
+        self.rng = (base[0] + lo * (base[1] - base[0]), base[0] + hi * (base[1] - base[0]))
+        self.emit(0.0, detail)
 
     # Cada etapa grava uma "chave" (hash das entradas dela): depois de
     # atualizar o port (outro patch, outra versão de dependência, outro
@@ -150,7 +184,8 @@ class Build:
     def mark(self, step):
         open(os.path.join(self.state, step), "w").write(self.key(step) + " " + time.ctime() + "\n")
 
-    def run(self, cmd, cwd=None, env=None):
+    def run(self, cmd, cwd=None, env=None, detail=""):
+        self.detail = detail
         self.log.write("$ " + " ".join(f'"{c}"' if " " in c else c for c in cmd) + "\n"); self.log.flush()
         p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace")
@@ -160,17 +195,23 @@ class Build:
             tail.append(line.rstrip())
             tail = tail[-30:]
             s = line.strip()
-            if s.startswith("[") and "/" in s.split("]")[0]:          # progresso do ninja: [n/total]
-                print("\r   " + s[:110].ljust(110), end="", flush=True)
+            m = NINJA_RE.match(s) or LIFT_RE.search(s)
+            if m and int(m.group(2)):
+                self.emit(int(m.group(1)) / int(m.group(2)), self.detail)
+                if not self.progress_mode and s.startswith("["):
+                    print("\r   " + s[:110].ljust(110), end="", flush=True)
         p.wait()
-        print("\r" + " " * 116 + "\r", end="")
+        if not self.progress_mode:
+            print("\r" + " " * 116 + "\r", end="")
         self.log.flush()
         if p.returncode != 0:
-            print("\n".join(tail))
-            raise SystemExit(f"\nERRO: comando falhou ({p.returncode}). Detalhes em toolchain\\build.log")
+            if not self.progress_mode:
+                print("\n".join(tail))
+            what = os.path.basename(cmd[0]) if cmd[0] != self.python else os.path.basename(cmd[1])
+            raise SystemExit(f"{self.title}: {what} falhou (código {p.returncode}). Detalhes em toolchain\\build.log")
 
-    def py(self, script, *args):
-        self.run([self.python, script, *args])
+    def py(self, script, *args, detail=""):
+        self.run([self.python, script, *args], detail=detail)
 
     def download(self, url, path, sha256=None):
         """Baixa url para path (se ainda não estiver lá), conferindo o SHA-256."""
@@ -221,9 +262,13 @@ class Build:
                     if not b:
                         break
                     f.write(b); got += len(b)
-                    pct = f" {got * 100 // total}%" if total else ""
-                    print(f"\r   {got >> 20} MB{pct}   ", end="", flush=True)
-            print()
+                    self.emit(0.8 * got / total if total else 0.0, f"baixando {name}: {got >> 20} MB"
+                              + (f" de {total >> 20} MB" if total else ""))
+                    if not self.progress_mode:
+                        pct = f" {got * 100 // total}%" if total else ""
+                        print(f"\r   {got >> 20} MB{pct}   ", end="", flush=True)
+            if not self.progress_mode:
+                print()
             want = PINNED_SHA256.get(name)
             if want:
                 h = hashlib.sha256()
@@ -238,7 +283,11 @@ class Build:
         tmpdir = dst + ".tmp"
         shutil.rmtree(tmpdir, ignore_errors=True)
         with zipfile.ZipFile(zpath) as z:
-            z.extractall(tmpdir)
+            members = z.infolist()
+            for i, m in enumerate(members):
+                z.extract(m, tmpdir)
+                if i % 200 == 0:
+                    self.emit(0.8 + 0.2 * i / len(members), f"extraindo {name}")
         items = os.listdir(tmpdir)
         top = os.path.join(tmpdir, items[0]) if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])) else tmpdir
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -269,16 +318,18 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
+set(Python3_EXECUTABLE "{self.python.replace(chr(92), "/")}")
+set(PYTHON_EXECUTABLE "{self.python.replace(chr(92), "/")}")
 """)
         return path
 
-    def cmake_build(self, src, bdir, *defs, install=False):
+    def cmake_build(self, src, bdir, *defs, install=False, detail=""):
         tcf = self.toolchain_file()
         self.run([self.cmake, "-S", src, "-B", bdir, "-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={self.ninja}",
-                  f"-DCMAKE_TOOLCHAIN_FILE={tcf}", "-DCMAKE_BUILD_TYPE=Release", *defs])
-        self.run([self.cmake, "--build", bdir, "-j", str(self.jobs)])
+                  f"-DCMAKE_TOOLCHAIN_FILE={tcf}", "-DCMAKE_BUILD_TYPE=Release", *defs], detail=detail)
+        self.run([self.cmake, "--build", bdir, "-j", str(self.jobs)], detail=detail)
         if install:
-            self.run([self.cmake, "--install", bdir])
+            self.run([self.cmake, "--install", bdir], detail=detail)
 
     # ---------------------------------------------------------------- etapas
     def step_import_pkg(self):
@@ -292,6 +343,7 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         from extract_pkg import Pkg, extract, load_pkg_key
         from unself_npdrm import load_keys, unself
         self.say("[0/6] Convertendo o PKG nos arquivos do jogo")
+        self.phase(0, 3, "Extraindo o PKG")
         try:
             cid = Pkg(self.pkg).content_id
         except (AssertionError, OSError, struct.error, UnicodeDecodeError):
@@ -304,11 +356,17 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         crypto = self.rpcs3_crypto()
         g = os.path.join(self.root, "game", "PS3_GAME")
         self.say(f"   AES: {aes_compat.BACKEND}")
-        extract(self.pkg, g, load_pkg_key(crypto), only=set(PKG_ITEMS), log=self.say)
+        sizes = {"USRDIR/Bman.bnk": 0.55, "USRDIR/media.zip": 0.9}
+        def plog(msg):
+            self.say(msg)
+            name = msg.split()[-1]
+            self.emit(sizes.get(name, 0.05), name)
+        extract(self.pkg, g, load_pkg_key(crypto), only=set(PKG_ITEMS), log=plog)
         miss = [i for i in PKG_ITEMS if i != "ICON0.PNG" and not os.path.exists(os.path.join(g, *i.split("/")))]
         if miss:
             raise SystemExit("O PKG não tem: " + ", ".join(miss))
         self.say("   decriptando USRDIR/EBOOT.BIN com a sua licença")
+        self.emit(0.95, "decriptando o EBOOT com a sua licença")
         K, SK = load_keys(crypto)
         elf = unself(open(os.path.join(g, "USRDIR", "EBOOT.BIN"), "rb").read(), open(rap, "rb").read(16),
                      K, SK, log=lambda m: None)
@@ -334,12 +392,13 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         if self.done("tools"):
             return
         self.say("[1/6] Ferramentas: CMake, Ninja e llvm-mingw")
+        self.phase(3, 12, "Baixando as ferramentas de compilação")
         if not os.path.exists(self.cmake):
-            self.fetch("cmake")
+            self.sub(0, 0.25); self.fetch("cmake")
         if not os.path.exists(self.ninja):
-            self.fetch("ninja")
+            self.sub(0.25, 0.3); self.fetch("ninja")
         if not os.path.exists(os.path.join(self.mingw, "bin", "x86_64-w64-mingw32-clang" + EXE)):
-            self.fetch("llvm-mingw")
+            self.sub(0.3, 1); self.fetch("llvm-mingw")
         self.mark("tools")
 
     def step_ps3recomp(self):
@@ -348,6 +407,7 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         if self.done("ps3recomp"):
             return
         self.say(f"[2/6] ps3recomp {PS3RECOMP_COMMIT[:7]} + patch do port")
+        self.phase(12, 13, "Baixando o ps3recomp")
         if "ps3recomp" not in self.src_override:
             shutil.rmtree(dst, ignore_errors=True)   # extrai de novo do zip (em cache): patch sempre na árvore limpa
         self.p3 = self.fetch("ps3recomp")
@@ -358,21 +418,25 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         if self.prebuilt_deps or self.done("deps"):
             return
         self.say("[3/6] Dependências: Vulkan-Headers, SDL2, glslang (uma vez só, alguns minutos)")
+        self.phase(13, 30, "Compilando as bibliotecas (SDL2, glslang)")
         b = os.path.join(self.tc, "b")   # curto: caminhos do Windows (MAX_PATH)
+        self.sub(0, 0.04)
         vh = self.fetch("vulkan-headers")
-        self.run([self.cmake, "-S", vh, "-B", os.path.join(b, "vh"), "-G", "Ninja",
-                  f"-DCMAKE_MAKE_PROGRAM={self.ninja}", f"-DCMAKE_INSTALL_PREFIX={os.path.join(self.deps, 'vk')}"])
-        self.run([self.cmake, "--install", os.path.join(b, "vh")])
+        # Só instala cabeçalhos, mas o project() dele pede um compilador: o da toolchain.
+        self.cmake_build(vh, os.path.join(b, "vh"), f"-DCMAKE_INSTALL_PREFIX={os.path.join(self.deps, 'vk')}",
+                         install=True, detail="Vulkan-Headers")
+        self.sub(0.04, 0.3)
         sdl = self.fetch("sdl2")
         self.cmake_build(sdl, os.path.join(b, "sdl2"), f"-DCMAKE_INSTALL_PREFIX={os.path.join(self.deps, 'sdl2-win')}",
-                         "-DSDL_SHARED=OFF", "-DSDL_STATIC=ON", "-DSDL_TEST=OFF", install=True)
+                         "-DSDL_SHARED=OFF", "-DSDL_STATIC=ON", "-DSDL_TEST=OFF", install=True, detail="SDL2")
+        self.sub(0.3, 1)
         gl = self.fetch("glslang")
         self.fetch("spirv-tools")
         self.fetch("spirv-headers")
         self.cmake_build(gl, os.path.join(b, "glslang"), f"-DCMAKE_INSTALL_PREFIX={os.path.join(self.deps, 'vk-win')}",
                          "-DENABLE_OPT=ON", "-DGLSLANG_TESTS=OFF", "-DBUILD_SHARED_LIBS=OFF",
                          "-DENABLE_GLSLANG_BINARIES=OFF", "-DSPIRV_SKIP_TESTS=ON", "-DSPIRV_SKIP_EXECUTABLES=ON",
-                         install=True)
+                         install=True, detail="glslang e SPIRV-Tools")
         self.mark("deps")
 
     def step_lift(self):
@@ -381,19 +445,27 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         R, T = self.root, os.path.join(self.p3, "tools")
         elf = os.path.join(R, "game", "PS3_GAME", "USRDIR", "EBOOT.elf")
         self.say("[4/6] Convertendo o jogo (PPU e SPU) -- alguns minutos")
+        self.phase(30, 44, "Convertendo o código do PS3 em C++")
         for d in ("analysis", "recompiled", "spu_jobs", "spu_gen2"):   # sem sobras de um lift anterior
             shutil.rmtree(os.path.join(R, d), ignore_errors=True)
-        self.py(os.path.join(T, "ppu_loader.py"), elf, "-o", os.path.join(R, "analysis", "loader"))
+        self.sub(0, 0.06)
+        self.py(os.path.join(T, "ppu_loader.py"), elf, "-o", os.path.join(R, "analysis", "loader"),
+                detail="analisando o EBOOT")
+        self.sub(0.06, 0.8, "PPU: 6.249 funções")
         self.py(os.path.join(T, "ppu_lifter.py"), elf,
                 "--functions", os.path.join(R, "analysis", "loader", "EBOOT.functions.json"),
                 "--hle-stubs", os.path.join(R, "analysis", "loader", "EBOOT.imports.json"),
-                "--output", os.path.join(R, "recompiled"), "-j", str(min(self.jobs, 32)))   # Windows: Pool <= 61
+                "--output", os.path.join(R, "recompiled"), "-j", str(min(self.jobs, 32)),   # Windows: Pool <= 61
+                detail="PPU: 6.249 funções")
+        self.sub(0.8, 0.84, "tabela de funções do sistema")
         self.py(os.path.join(T, "gen_hle_nids.py"), "--all", "--out", os.path.join(R, "recompiled", "ppu_hle_nids.cpp"))
+        self.sub(0.84, 1, "SPU: áudio e jobs de renderização")
         self.py(os.path.join(R, "tools", "extract_spu_jobs.py"), elf, os.path.join(R, "spu_jobs"))
         os.makedirs(os.path.join(R, "spu_gen2"), exist_ok=True)
         self.py(os.path.join(T, "build_spu_workloads.py"), "--lifted", os.path.join(R, "spu_gen2"),
                 "--out", os.path.join(R, "spu_gen2", "spu_workloads.c"), "--constructor",
                 "--input", elf, "--input", os.path.join(R, "spu_jobs", "job_1a4000.elf"))
+        self.emit(0.6, "SPU: jobs de renderização")
         job = os.path.join(R, "spu_jobs", "job_199a80.elf")
         self.py(os.path.join(T, "spu_lifter.py"), job, "--auto-functions", job, "--code-end", "0x9320",
                 "--base", "0", "--symbol-prefix", "bmujob_render", "-o", os.path.join(R, "spu_gen2", "bmujob_render"))
@@ -403,6 +475,7 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
     def step_assets(self):
         R = self.root
         self.say("[5/6] Ícone e tradução PT-BR")
+        self.phase(44, 45, "Ícone e tradução PT-BR")
         self.py(os.path.join(R, "tools", "make_icon.py"), os.path.join(R, "game", "PS3_GAME", "ICON0.PNG"),
                 os.path.join(R, "src", "bomberman.ico"), os.path.join(R, "launcher", "bomberman.ico"))
         os.makedirs(os.path.join(R, "build-assets"), exist_ok=True)
@@ -415,9 +488,10 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
         R = self.root
         tcf = self.toolchain_file()
         deps = self.deps
-        for bdir, march, exe in (("build-win-compat", "x86-64-v2", "BombermanUltra_compat.exe"),
-                                 ("build-win", "x86-64-v3", "BombermanUltra.exe")):
+        for i, (bdir, march, exe) in enumerate((("build-win-compat", "x86-64-v2", "BombermanUltra_compat.exe"),
+                                                ("build-win", "x86-64-v3", "BombermanUltra.exe"))):
             self.say(f"[6/6] Compilando {exe} ({march})")
+            self.phase((45, 72)[i], (72, 99)[i], f"Compilando o jogo ({i + 1} de 2)")
             flags = f"-D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -march={march}"
             self.run([self.cmake, "-S", R, "-B", os.path.join(R, bdir), "-G", "Ninja",
                       f"-DCMAKE_MAKE_PROGRAM={self.ninja}", f"-DCMAKE_TOOLCHAIN_FILE={tcf}",
@@ -427,8 +501,8 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
                       "-DBMU_BUILD_LAUNCHER=OFF",   # o launcher em uso está aberto (exe travado)
                       "-DPS3RECOMP_RSX_VULKAN=ON", f"-DPS3RECOMP_VULKAN_INCLUDE_DIR={os.path.join(deps, 'vk', 'include')}",
                       f"-DCMAKE_PREFIX_PATH={os.path.join(deps, 'sdl2-win')};{os.path.join(deps, 'vk-win')}",
-                      f"-DCMAKE_C_FLAGS={flags}", f"-DCMAKE_CXX_FLAGS={flags}"])
-            self.run([self.cmake, "--build", os.path.join(R, bdir), "-j", str(self.jobs)])
+                      f"-DCMAKE_C_FLAGS={flags}", f"-DCMAKE_CXX_FLAGS={flags}"], detail=exe)
+            self.run([self.cmake, "--build", os.path.join(R, bdir), "-j", str(self.jobs)], detail=exe)
 
 
 # -------------------------------------------------------------------- helpers
@@ -539,7 +613,10 @@ def main():
     ap.add_argument("--cmake"); ap.add_argument("--ninja"); ap.add_argument("--llvm-mingw")
     ap.add_argument("--deps-prefix")
     ap.add_argument("--src", action="append", metavar="NOME=PASTA")
-    ap.add_argument("--pause", action="store_true", help="espera Enter no fim (janela aberta pelo launcher)")
+    ap.add_argument("--pause", action="store_true", help="espera Enter no fim (janela de console)")
+    ap.add_argument("--progress", action="store_true",
+                    help="saída para o launcher: só linhas @@P (progresso) e @@E (erro)")
+    ap.add_argument("--python", help="interpretador para os scripts e o CMake (padrão: este)")
     ap.add_argument("--pkg", help="PKG europeu do usuário: extrai e decripta para game/PS3_GAME antes do build")
     ap.add_argument("--rap", help="licença .rap (padrão: game/licenses/<content id>.rap)")
     ap.add_argument("--rpcs3-crypto", help="pasta rpcs3/Crypto local, em vez de baixar os key_vault")
@@ -547,17 +624,28 @@ def main():
     try:
         build(a)
     except BaseException as e:
+        msg = ""
         if isinstance(e, KeyboardInterrupt):
-            print("\nInterrompido.")
-            code = 130
+            msg, code = "Interrompido.", 130
         elif isinstance(e, SystemExit):
             code = e.code if isinstance(e.code, int) else 1
             if not isinstance(e.code, int) and e.code:
-                print(e.code)
+                msg = str(e.code).strip()
         else:
             import traceback
-            traceback.print_exc()
-            code = 1
+            msg, code = traceback.format_exc().strip(), 1
+        if msg:
+            try:
+                with open(os.path.join(os.path.abspath(a.root), "toolchain", "build.log"), "a", encoding="utf-8") as lg:
+                    lg.write(time.strftime("%H:%M:%S ") + "ERRO: " + msg + "\n")
+            except OSError:
+                pass
+            if a.progress:
+                last = msg.splitlines()[-1] if isinstance(e, Exception) and not isinstance(e, SystemExit) else msg
+                for line in last.splitlines():
+                    print("@@E " + line, flush=True)
+            else:
+                print(msg)
         if code and a.pause:
             print("\nO build parou. O log completo está em toolchain\\build.log.")
             try:
@@ -586,6 +674,7 @@ def build(a):
     b.step_assets()
     b.step_compile()
     b.mark("ok")
+    b.phase(100, 100, "Pronto")
     b.say(f"=== Pronto em {int(time.time() - t0) // 60} min: bin\\BombermanUltra.exe e bin\\BombermanUltra_compat.exe ===")
 
 

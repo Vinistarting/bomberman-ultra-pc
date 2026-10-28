@@ -44,6 +44,7 @@
 #include <uxtheme.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <math.h>
 #include <tlhelp32.h>
 #include <commdlg.h>
 #include <bcrypt.h>
@@ -77,6 +78,8 @@ enum {
 #define WM_APP_PREPARE   (WM_APP + 2)
 #define WM_APP_JOGAR     (WM_APP + 3)
 #define WM_APP_BUILD_DONE (WM_APP + 4)
+#define WM_APP_BUILD_PROGRESS (WM_APP + 5)
+enum { IDC_PTITLE = 300, IDC_PSTEP, IDC_PBAR, IDC_PINFO, IDC_HDR_RIGHT };
 
 struct Resolution { int w, h; const wchar_t* label; };
 static const Resolution kRes[] = {
@@ -483,12 +486,8 @@ static int run_checks(Check* c, int max)
 static bool g_building = false;   /* "Preparar jogo" em andamento */
 static void refresh_status(void)
 {
-    if (g_building) {
-        SetWindowTextW(g_status, L"Compilando o jogo neste PC…\r\n\r\n"
-                                 L"Acompanhe na janela do console. Na primeira vez leva de 10 a 40 minutos "
-                                 L"(baixa as ferramentas e converte o jogo).\r\n\r\n"
-                                 L"Pode usar o PC enquanto isso; não feche a janela do console.");
-        EnableWindow(g_play, FALSE);
+    if (g_building) {               /* o painel de progresso ocupa o lugar; JOGAR vira CANCELAR */
+        EnableWindow(g_play, TRUE);
         return;
     }
     Check c[8];
@@ -1538,7 +1537,237 @@ static DWORD run_wait(wchar_t* cmdline, const wchar_t* cwd, DWORD flags, const w
     return code;
 }
 
-/* Thread do "Preparar jogo": Python embutido + build_windows.py num console. */
+/* ---- Progresso do "Preparar jogo" (sem console) ----
+ * O build_windows.py roda escondido (--progress) e escreve linhas
+ * "@@P <0-100> <etapa>|<detalhe>" e "@@E <erro>" no stdout; esta thread lê o
+ * pipe e manda para a janela, que desenha a barra animada. Tudo roda dentro de
+ * um Job do Windows: cancelar (ou fechar o launcher) encerra o build inteiro. */
+static HANDLE g_job = nullptr;
+static bool g_build_cancelled = false;
+static std::wstring g_build_err;              /* escrita pela thread antes do WM_APP_BUILD_DONE */
+
+static void post_progress(double pct, const std::wstring& step, const std::wstring& detail)
+{
+    PostMessageW(g_wnd, WM_APP_BUILD_PROGRESS, (WPARAM)(pct * 10), (LPARAM)new std::wstring(step + L"|" + detail));
+}
+
+static std::wstring from_utf8(const std::string& s)
+{
+    if (s.empty()) return std::wstring();
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
+    return w;
+}
+
+static void handle_build_line(const std::string& raw)
+{
+    std::string line = raw;
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    if (line.compare(0, 4, "@@P ") == 0) {
+        const size_t sp = line.find(' ', 4);
+        if (sp == std::string::npos) return;
+        const double pct = atof(line.substr(4, sp - 4).c_str());
+        const std::wstring rest = from_utf8(line.substr(sp + 1));
+        const size_t bar = rest.find(L'|');
+        post_progress(pct, rest.substr(0, bar), bar == std::wstring::npos ? L"" : rest.substr(bar + 1));
+    } else if (line.compare(0, 4, "@@E ") == 0) {
+        if (!g_build_err.empty()) g_build_err += L"\n";
+        g_build_err += from_utf8(line.substr(4));
+    }
+}
+
+/* Roda o build escondido, lendo o stdout até o processo terminar. */
+static DWORD run_build_hidden(wchar_t* cmdline)
+{
+    SECURITY_ATTRIBUTES sa = { sizeof sa, nullptr, TRUE };
+    HANDLE rd = nullptr, wr = nullptr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return (DWORD)-1;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    STARTUPINFOW si; ZeroMemory(&si, sizeof si); si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = nul; si.hStdOutput = wr; si.hStdError = wr;
+    PROCESS_INFORMATION pi;
+    /* CREATE_NO_WINDOW: console sem janela, herdado pelo cmake/ninja/clang. */
+    const BOOL ok = CreateProcessW(nullptr, cmdline, nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
+                                   nullptr, g_root, &si, &pi);
+    CloseHandle(wr);
+    if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    if (!ok) { CloseHandle(rd); return (DWORD)-1; }
+    g_job = CreateJobObjectW(nullptr, nullptr);
+    if (g_job) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION li; ZeroMemory(&li, sizeof li);
+        li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &li, sizeof li);
+        AssignProcessToJobObject(g_job, pi.hProcess);
+    }
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+
+    std::string acc;
+    char buf[4096];
+    for (;;) {
+        DWORD avail = 0;
+        const bool pipe_ok = PeekNamedPipe(rd, nullptr, 0, nullptr, &avail, nullptr) != FALSE;
+        if (pipe_ok && avail) {
+            DWORD got = 0;
+            if (!ReadFile(rd, buf, std::min<DWORD>(avail, sizeof buf), &got, nullptr) || !got) break;
+            acc.append(buf, got);
+            size_t nl;
+            while ((nl = acc.find('\n')) != std::string::npos) {
+                handle_build_line(acc.substr(0, nl));
+                acc.erase(0, nl + 1);
+            }
+            continue;
+        }
+        /* Sem dados: terminou? (um neto que ainda segure o pipe não trava a leitura) */
+        if (!pipe_ok || WaitForSingleObject(pi.hProcess, 100) == WAIT_OBJECT_0) {
+            if (pipe_ok && PeekNamedPipe(rd, nullptr, 0, nullptr, &avail, nullptr) && avail) continue;
+            break;
+        }
+    }
+    if (!acc.empty()) handle_build_line(acc);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = (DWORD)-1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(rd);
+    if (g_job) { CloseHandle(g_job); g_job = nullptr; }   /* KILL_ON_JOB_CLOSE: nada fica para trás */
+    return code;
+}
+
+static void cancel_build(void)
+{
+    if (!g_building) return;
+    if (MessageBoxW(g_wnd, L"Cancelar a preparação do jogo?\n\nO que já foi baixado e compilado fica guardado; "
+                           L"clicar em “Preparar jogo” de novo continua de onde parou.",
+                    APP_TITLE, MB_ICONQUESTION | MB_YESNO) != IDYES)
+        return;
+    g_build_cancelled = true;
+    if (g_job) TerminateJobObject(g_job, 130);
+}
+
+/* ---- Painel de progresso: barra animada (pavio aceso) no lugar da verificação ---- */
+static HWND g_ptitle, g_pstep, g_pbar, g_pinfo;
+static double g_pct = 0, g_pct_shown = 0;
+static unsigned g_anim = 0;
+static DWORD g_build_t0 = 0;
+static std::wstring g_pdetail;
+static ITaskbarList3* g_taskbar = nullptr;
+#define TIMER_ANIM 1
+
+static void show_progress_panel(bool on)
+{
+    ShowWindow(g_status, on ? SW_HIDE : SW_SHOW);
+    for (HWND w : { g_ptitle, g_pstep, g_pbar, g_pinfo }) ShowWindow(w, on ? SW_SHOW : SW_HIDE);
+    if (on) {
+        g_pct = g_pct_shown = 0;
+        g_anim = 0;
+        g_pdetail.clear();
+        g_build_t0 = GetTickCount();
+        SetWindowTextW(g_ptitle, L"Preparando o jogo");
+        SetWindowTextW(g_pstep, L"Começando…");
+        SetWindowTextW(g_pinfo, L"");
+        SetTimer(g_wnd, TIMER_ANIM, 33, nullptr);
+        SetWindowTextW(g_play, L"✖  CANCELAR");
+        EnableWindow(g_play, TRUE);
+    } else {
+        KillTimer(g_wnd, TIMER_ANIM);
+        SetWindowTextW(g_play, L"▶  JOGAR");
+    }
+    if (!g_taskbar)
+        CoCreateInstance(__uuidof(TaskbarList), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&g_taskbar));
+    if (g_taskbar) g_taskbar->SetProgressState(g_wnd, on ? TBPF_NORMAL : TBPF_NOPROGRESS);
+}
+
+static void progress_tick(void)
+{
+    g_anim++;
+    g_pct_shown += (g_pct - g_pct_shown) * 0.12;              /* a barra desliza até o valor novo */
+    if (fabs(g_pct - g_pct_shown) < 0.05) g_pct_shown = g_pct;
+    InvalidateRect(g_pbar, nullptr, FALSE);
+    if (g_anim % 8 == 0) {
+        const DWORD s = (GetTickCount() - g_build_t0) / 1000;
+        static const wchar_t* dots[] = { L"", L".", L"..", L"..." };
+        wchar_t t[64], info[400];
+        _snwprintf(t, 64, L"Preparando o jogo%s", dots[(g_anim / 16) % 4]);
+        SetWindowTextW(g_ptitle, t);
+        _snwprintf(info, 400, L"%.0f%%   ·   %u:%02u decorridos%s%s", g_pct, s / 60, s % 60,
+                   g_pdetail.empty() ? L"" : L"\r\n", g_pdetail.c_str());
+        SetWindowTextW(g_pinfo, info);
+    }
+}
+
+static void add_round_rect(Gdiplus::GraphicsPath& p, Gdiplus::REAL x, Gdiplus::REAL y, Gdiplus::REAL w,
+                           Gdiplus::REAL h, Gdiplus::REAL r)
+{
+    r = std::min(r, std::min(w, h) / 2);
+    if (r < 0.5f) { p.AddRectangle(Gdiplus::RectF(x, y, w, h)); return; }
+    p.AddArc(x, y, 2 * r, 2 * r, 180, 90);
+    p.AddArc(x + w - 2 * r, y, 2 * r, 2 * r, 270, 90);
+    p.AddArc(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, 0, 90);
+    p.AddArc(x, y + h - 2 * r, 2 * r, 2 * r, 90, 90);
+    p.CloseFigure();
+}
+
+/* Barra: trilho escuro, preenchimento laranja→amarelo com listras que andam e
+ * uma faísca piscando na ponta, como um pavio queimando. */
+static void draw_progress_bar(const DRAWITEMSTRUCT* di)
+{
+    using namespace Gdiplus;
+    const RECT rc = di->rcItem;
+    const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+    HDC mem = CreateCompatibleDC(di->hDC);
+    HBITMAP bmp = CreateCompatibleBitmap(di->hDC, w, h);
+    HGDIOBJ old = SelectObject(mem, bmp);
+    {
+        Graphics g(mem);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        SolidBrush bg(Color(255, GetRValue(kBg), GetGValue(kBg), GetBValue(kBg)));
+        g.FillRectangle(&bg, 0, 0, w, h);
+        const REAL bx = 1, by = 4, bw = (REAL)w - 2, bh = (REAL)h - 8, r = bh / 2;
+        GraphicsPath track;
+        add_round_rect(track, bx, by, bw, bh, r);
+        SolidBrush trackb(Color(255, GetRValue(kPanel), GetGValue(kPanel), GetBValue(kPanel)));
+        g.FillPath(&trackb, &track);
+        Pen border(Color(255, 58, 62, 76), 1);
+        g.DrawPath(&border, &track);
+
+        const REAL fw = std::max<REAL>(0, (REAL)(bw * g_pct_shown / 100.0));
+        if (fw > 1) {
+            GraphicsPath fill;
+            add_round_rect(fill, bx, by, std::max(fw, bh), bh, r);
+            LinearGradientBrush grad(PointF(bx, 0), PointF(bx + bw, 0), Color(255, 255, 92, 20), Color(255, 255, 206, 40));
+            g.FillPath(&grad, &fill);
+            Region clip(&fill);
+            g.SetClip(&clip);
+            SolidBrush stripe(Color(46, 255, 255, 255));
+            const REAL period = 22, off = (REAL)(g_anim % 22);
+            for (REAL x = bx - period * 2 + off; x < bx + fw + period; x += period) {
+                PointF pts[4] = { PointF(x, by + bh), PointF(x + 9, by + bh), PointF(x + 9 + bh, by), PointF(x + bh, by) };
+                g.FillPolygon(&stripe, pts, 4);
+            }
+            SolidBrush shine(Color(70, 255, 255, 255));
+            g.FillRectangle(&shine, bx, by + 1, fw, bh * 0.35f);
+            g.ResetClip();
+            /* faísca na ponta */
+            const REAL cx = bx + std::max(fw, bh) - r * 0.6f, cy = by + bh / 2;
+            const REAL pulse = (REAL)(0.75 + 0.25 * sin(g_anim * 0.45));
+            for (int i = 3; i >= 1; i--) {
+                const REAL rad = (REAL)(bh * 0.35 * i * pulse);
+                SolidBrush glow(Color((BYTE)(i == 1 ? 230 : 70 / i), 255, i == 1 ? 250 : 200, i == 1 ? 210 : 60));
+                g.FillEllipse(&glow, cx - rad, cy - rad, rad * 2, rad * 2);
+            }
+        }
+    }
+    BitBlt(di->hDC, rc.left, rc.top, w, h, mem, 0, 0, SRCCOPY);
+    SelectObject(mem, old);
+    DeleteObject(bmp);
+    DeleteDC(mem);
+}
+
+/* Thread do "Preparar jogo": Python embutido + build_windows.py escondido. */
 static DWORD WINAPI build_thread(LPVOID)
 {
     wchar_t tc[MAX_PATH], dl[MAX_PATH], py[MAX_PATH], py_exe[MAX_PATH], zip[MAX_PATH];
@@ -1549,7 +1778,7 @@ static DWORD WINAPI build_thread(LPVOID)
     path_join(zip, dl, kPyZip);
     ensure_dir(dl);
     if (!file_exists(py_exe)) {
-        SetWindowTextW(g_status, L"Baixando o Python embutido (11 MB, python.org)\u2026");
+        post_progress(0, L"Baixando o Python embutido", L"python.org, 11 MB");
         if (!file_exists(zip) || !file_md5_is(zip, kPyMd5)) {
             DeleteFileW(zip);
             DeleteUrlCacheEntryW(kPyUrl);
@@ -1564,6 +1793,7 @@ static DWORD WINAPI build_thread(LPVOID)
             PostMessageW(g_wnd, WM_APP_BUILD_DONE, 1, (LPARAM)L"O Python baixado não confere (MD5). Tente de novo.");
             return 0;
         }
+        post_progress(0, L"Preparando o Python embutido", L"");
         ensure_dir(py);
         wchar_t sys32[MAX_PATH], cmd[3 * MAX_PATH + 64];
         GetSystemDirectoryW(sys32, MAX_PATH);
@@ -1583,11 +1813,11 @@ static DWORD WINAPI build_thread(LPVOID)
     const std::string u = to_utf8(t.c_str());
     write_whole(pth, std::vector<unsigned char>(u.begin(), u.end()));
 
-    SetWindowTextW(g_status, L"Compilando o jogo neste PC\u2026 acompanhe na janela do console.");
+    if (g_build_cancelled) { PostMessageW(g_wnd, WM_APP_BUILD_DONE, 130, 0); return 0; }
     wchar_t cmd[5 * MAX_PATH];
-    _snwprintf(cmd, sizeof cmd / sizeof cmd[0], L"\"%s\" -X utf8 \"%s\\tools\\build_windows.py\" --root \"%s\" --pause%s%s%s",
+    _snwprintf(cmd, sizeof cmd / sizeof cmd[0], L"\"%s\" -X utf8 \"%s\\tools\\build_windows.py\" --root \"%s\" --progress%s%s%s",
                py_exe, g_root, g_root, g_pkg[0] ? L" --pkg \"" : L"", g_pkg, g_pkg[0] ? L"\"" : L"");
-    const DWORD code = run_wait(cmd, g_root, CREATE_NEW_CONSOLE, L"Bomberman ULTRA \u2014 Preparar jogo");
+    const DWORD code = run_build_hidden(cmd);
     if (code == (DWORD)-1)
         PostMessageW(g_wnd, WM_APP_BUILD_DONE, 1, (LPARAM)L"Não consegui iniciar o Python embutido.");
     else
@@ -1656,7 +1886,11 @@ static void prepare_game(void)
 
     if (g_pkg[0]) reload_banner(true);   /* o ICON0.PNG vai ser gravado de novo */
     g_building = true;
+    g_build_cancelled = false;
+    g_build_err.clear();
     EnableWindow(GetDlgItem(g_wnd, IDC_PREPARE), FALSE);
+    SetDlgItemTextW(g_wnd, IDC_HDR_RIGHT, L"PREPARAÇÃO");
+    show_progress_panel(true);
     refresh_status();
     CloseHandle(CreateThread(nullptr, 0, build_thread, nullptr, 0, nullptr));
 }
@@ -1706,8 +1940,14 @@ static void build_ui(void)
                BS_AUTOCHECKBOX | WS_TABSTOP, L, top + 264, 330, 22, IDC_CAP, nullptr);
 
     const int R = 360;
-    mk(L"STATIC", L"VERIFICAÇÃO", 0, R, top, 200, 18, -1, g_font_bold);
+    mk(L"STATIC", L"VERIFICAÇÃO", 0, R, top, 200, 18, IDC_HDR_RIGHT, g_font_bold);
     g_status = mk(L"STATIC", L"", SS_LEFT, R, top + 26, WIN_W - R - 36, 170, IDC_STATUS, nullptr);
+    /* Painel de progresso do "Preparar jogo" (escondido até começar). */
+    g_ptitle = mk(L"STATIC", L"", SS_LEFT, R, top + 28, 328, 28, IDC_PTITLE, g_font_title);
+    g_pstep = mk(L"STATIC", L"", SS_LEFT | SS_ENDELLIPSIS, R, top + 62, 328, 20, IDC_PSTEP, nullptr);
+    g_pbar = mk(L"STATIC", L"", SS_OWNERDRAW, R, top + 88, 328, 28, IDC_PBAR, nullptr);
+    g_pinfo = mk(L"STATIC", L"", SS_LEFT, R, top + 124, 328, 70, IDC_PINFO, nullptr);
+    for (HWND w : { g_ptitle, g_pstep, g_pbar, g_pinfo }) ShowWindow(w, SW_HIDE);
     mk(L"BUTTON", L"Preparar jogo", WS_TABSTOP, R, top + 204, 160, 30, IDC_PREPARE, nullptr);
     mk(L"BUTTON", L"Localizar licença", WS_TABSTOP, R + 168, top + 204, 160, 30, IDC_LICENSE, nullptr);
     mk(L"BUTTON", L"Pasta de saves", WS_TABSTOP, R, top + 240, 160, 30, IDC_SAVES, nullptr);
@@ -1787,7 +2027,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_CTLCOLORBTN: {
         HDC dc = (HDC)wp;
         SetBkColor(dc, kBg);
-        SetTextColor(dc, (HWND)lp == g_status ? kText : kDim);
+        const HWND c = (HWND)lp;
+        SetTextColor(dc, (c == g_status || c == g_ptitle || c == g_pstep) ? kText : kDim);
         return (LRESULT)g_bg_brush;
     }
     case WM_CTLCOLOREDIT:
@@ -1800,7 +2041,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_COMMAND:
         switch (LOWORD(wp)) {
         case IDC_PLAY:
-            if (g_game_proc) {   /* em execução: o botão encerra o jogo */
+            if (g_building) {    /* durante o "Preparar jogo" o botão cancela */
+                cancel_build();
+            } else if (g_game_proc) {   /* em execução: o botão encerra o jogo */
                 if (MessageBoxW(h, L"Encerrar o jogo agora? O progresso não salvo será perdido.",
                                 APP_TITLE, MB_ICONQUESTION | MB_YESNO) == IDYES) {
                     g_game_killed = true;
@@ -1814,7 +2057,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         case IDC_LICENSE:      license_pick(); refresh_status(); break;
         case IDC_STEAM:        steam_add(); break;
         case IDC_SAVES:        open_in_explorer(L"user\\dev_hdd0", false); break;
-        case IDC_LOG:          open_in_explorer(L"logs\\bomberman.log", true); break;
+        case IDC_LOG:          open_in_explorer(g_building ? L"toolchain\\build.log" : L"logs\\bomberman.log", true); break;
         case IDC_QUIT:         DestroyWindow(h); break;
         default:               if (HIWORD(wp) == CBN_SELCHANGE || HIWORD(wp) == BN_CLICKED) save_settings(); break;
         }
@@ -1840,31 +2083,59 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
+    case WM_TIMER:
+        if (wp == TIMER_ANIM) progress_tick();
+        return 0;
+    case WM_DRAWITEM:
+        if (wp == IDC_PBAR) { draw_progress_bar((const DRAWITEMSTRUCT*)lp); return TRUE; }
+        break;
+    case WM_APP_BUILD_PROGRESS: {
+        std::wstring* t = (std::wstring*)lp;
+        if (g_building) {
+            g_pct = std::max(g_pct, wp / 10.0);
+            const size_t bar = t->find(L'|');
+            SetWindowTextW(g_pstep, t->substr(0, bar).c_str());
+            g_pdetail = bar == std::wstring::npos ? L"" : t->substr(bar + 1);
+            if (g_taskbar) g_taskbar->SetProgressValue(h, (ULONGLONG)(g_pct * 10), 1000);
+        }
+        delete t;
+        return 0;
+    }
     case WM_APP_BUILD_DONE: {
         g_building = false;
-        reload_banner(false);   /* o ICON0.PNG pode ter vindo do PKG agora */
+        show_progress_panel(false);
+        SetDlgItemTextW(h, IDC_HDR_RIGHT, L"VERIFICAÇÃO");
         EnableWindow(GetDlgItem(h, IDC_PREPARE), TRUE);
+        reload_banner(false);   /* o ICON0.PNG pode ter vindo do PKG agora */
         refresh_status();
         ShowWindow(h, SW_RESTORE);
         SetForegroundWindow(h);
-        if (lp) {
+        if (g_build_cancelled) {
+            /* cancelado pelo usuário: nada a avisar */
+        } else if (lp) {
             MessageBoxW(h, (const wchar_t*)lp, APP_TITLE, MB_ICONERROR);
         } else if (wp == 0 && find_game_exe()) {
             MessageBoxW(h, L"Pronto! O jogo foi compilado neste PC a partir dos seus arquivos.\n\nClique em JOGAR.",
                         APP_TITLE, MB_ICONINFORMATION);
-        } else if ((int)wp != 130) {
-            wchar_t msg[300];
-            _snwprintf(msg, 300, L"A compilação parou (código %d).\n\nAbrir o log (toolchain\\build.log)? "
-                                 L"Clicar em “Preparar jogo” de novo continua de onde parou.", (int)wp);
-            if (MessageBoxW(h, msg, APP_TITLE, MB_ICONWARNING | MB_YESNO) == IDYES)
+        } else {
+            std::wstring msg = L"A preparação parou.\n\n";
+            msg += g_build_err.empty() ? L"(sem mensagem de erro)" : g_build_err;
+            msg += L"\n\nClicar em “Preparar jogo” de novo continua de onde parou. "
+                   L"Abrir o log completo (toolchain\\build.log)?";
+            if (MessageBoxW(h, msg.c_str(), APP_TITLE, MB_ICONWARNING | MB_YESNO) == IDYES)
                 open_in_explorer(L"toolchain\\build.log", true);
         }
         return 0;
     }
     case WM_CLOSE:
-        if (g_building && MessageBoxW(h, L"A compilação continua na janela do console mesmo com o launcher fechado.\n\n"
-                                         L"Fechar o launcher?", APP_TITLE, MB_ICONQUESTION | MB_YESNO) != IDYES)
-            return 0;
+        if (g_building) {
+            if (MessageBoxW(h, L"O jogo ainda está sendo preparado. Fechar o launcher cancela a preparação "
+                               L"(o que já foi feito fica guardado).\n\nFechar mesmo assim?",
+                            APP_TITLE, MB_ICONQUESTION | MB_YESNO) != IDYES)
+                return 0;
+            g_build_cancelled = true;
+            if (g_job) TerminateJobObject(g_job, 130);
+        }
         save_settings();
         DestroyWindow(h);
         return 0;

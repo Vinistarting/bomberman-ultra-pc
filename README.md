@@ -79,7 +79,7 @@ Se você tem NVIDIA, um relato (funcionou ou não, com o `logs\bomberman.log`) a
 1. **Baixe** o `BombermanUltra-PC-<versão>.zip` em [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) e extraia num caminho curto, por exemplo `C:\Jogos\BombermanUltra`. Deixe o `.pkg` e o `.rap` na pasta do port, em Downloads, na Área de Trabalho ou em Documentos, que o launcher acha sozinho (ou aponte onde estão).
 2. **Abra o `BombermanUltraLauncher.exe`** e clique em **Preparar jogo**. Se o Windows avisar que o app não é reconhecido, use *Mais informações → Executar assim mesmo* (o launcher não é assinado).
 3. Escolha **Selecionar o PKG do jogo**. O launcher confere pelo cabeçalho que é o PKG europeu (o nome do arquivo não importa) e pede a licença `.rap` se não a encontrar.
-4. Confirme. Uma janela de console:
+4. Confirme. O launcher mostra o andamento numa barra de progresso (dá para cancelar e continuar depois) enquanto:
    - extrai do PKG só o que o port usa (`PARAM.SFO`, `ICON0.PNG`, `EBOOT.BIN`, `media.zip`, `Bman.bnk`) para `game\PS3_GAME`;
    - decripta o `EBOOT.BIN` com a sua licença e confere o resultado pelo hash da versão europeia 01.00;
    - baixa as ferramentas para `toolchain\` e compila o jogo: **10 a 40 minutos** na primeira vez, conforme o processador.

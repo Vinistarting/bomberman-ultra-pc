@@ -18,8 +18,9 @@ Passo a passo:
   2. Abra o BombermanUltraLauncher.exe (se o Windows avisar: "Mais informações" >
      "Executar assim mesmo") e clique em "Preparar jogo".
   3. Escolha "Selecionar o PKG do jogo" e confirme.
-  4. Uma janela de console extrai o PKG, decripta o EBOOT com a sua licença e
-     compila o jogo (10 a 40 minutos na primeira vez). No fim, clique em JOGAR.
+  4. O launcher mostra o progresso enquanto extrai o PKG, decripta o EBOOT com a
+     sua licença e compila o jogo (10 a 40 minutos na primeira vez). No fim,
+     clique em JOGAR.
 
 Ajuda, detalhes e relatos de problemas:
   https://github.com/Vinistarting/bomberman-ultra-pc

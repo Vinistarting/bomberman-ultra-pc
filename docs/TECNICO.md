@@ -84,7 +84,7 @@ Com "Português (Brasil)" escolhido, o launcher monta `game\PS3_GAME\USRDIR\medi
 
 ## Como o jogo é compilado
 
-O botão **Preparar jogo** do launcher baixa o Python *embeddable* oficial (conferido por MD5 publicado em python.org) para `toolchain\python`, escreve o `python312._pth` com os caminhos de `tools\` e do ps3recomp e roda `tools\build_windows.py --pause` num console. O script só usa a biblioteca padrão (o AES vem da BCrypt do Windows via ctypes, ver `tools/aes_compat.py`) e faz, em ordem:
+O botão **Preparar jogo** do launcher baixa o Python *embeddable* oficial (conferido por MD5 publicado em python.org) para `toolchain\python`, escreve o `python312._pth` com os caminhos de `tools\` e do ps3recomp e roda `tools\build_windows.py --progress` escondido, dentro de um Job do Windows (cancelar ou fechar o launcher encerra o build inteiro). O script escreve linhas `@@P <0-100> <etapa>|<detalhe>` e `@@E <erro>`, que o launcher mostra numa barra animada e na barra de tarefas; o resto vai para `toolchain\build.log`. O script só usa a biblioteca padrão (o AES vem da BCrypt do Windows via ctypes, ver `tools/aes_compat.py`) e faz, em ordem:
 
 | Etapa | O que faz | Refeita quando muda |
 |---|---|---|
