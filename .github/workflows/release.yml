@@ -3,9 +3,18 @@ name: Release
 # Publica o pacote do port: o launcher compilado + o código-fonte. Nenhum
 # arquivo do jogo, nada gerado a partir dele: o jogo é compilado no PC de
 # cada usuário pelo botão "Preparar jogo".
+# Dispara com o push de uma tag v* ou ao publicar uma release pelo site (a
+# tag criada ali também gera um push; o grupo de concorrência evita dois
+# envios ao mesmo tempo, e o upload com --clobber torna a repetição inofensiva).
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
