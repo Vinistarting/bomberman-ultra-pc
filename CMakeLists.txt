@@ -19,7 +19,9 @@ project(BombermanUltra
 )
 
 # Launcher primeiro: ele não depende do lift e deve compilar sempre.
-if(WIN32)
+# O "Preparar jogo" desliga (o launcher que o chamou está aberto).
+option(BMU_BUILD_LAUNCHER "Compilar também o BombermanUltraLauncher.exe" ON)
+if(WIN32 AND BMU_BUILD_LAUNCHER)
     add_subdirectory(launcher)
 endif()
 

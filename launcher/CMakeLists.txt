@@ -8,16 +8,27 @@ else()
     enable_language(RC)
 endif()
 
+# Ícone: o do jogo (bomberman.ico, gerado do ICON0.PNG do usuário pelo build)
+# ou, sem ele (pacote de release, CI), o genérico desenhado pelo make_icon.py.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bomberman.ico" AND NOT BMU_GENERIC_ICON)
+    set(_bmu_icon "${CMAKE_CURRENT_SOURCE_DIR}/bomberman.ico")
+else()
+    set(_bmu_icon "${CMAKE_CURRENT_SOURCE_DIR}/generic.ico")
+endif()
+configure_file("${_bmu_icon}" "${CMAKE_CURRENT_BINARY_DIR}/launcher_icon.ico" COPYONLY)
+
 add_executable(BombermanUltraLauncher WIN32
     launcher.cpp
     launcher.rc
 )
 target_compile_features(BombermanUltraLauncher PRIVATE cxx_std_17)
+target_include_directories(BombermanUltraLauncher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(BombermanUltraLauncher PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
-target_link_libraries(BombermanUltraLauncher PRIVATE comctl32 gdiplus shell32 ole32 uxtheme comdlg32 bcrypt advapi32)
+target_link_libraries(BombermanUltraLauncher PRIVATE comctl32 gdiplus shell32 ole32 uuid uxtheme comdlg32 bcrypt advapi32 urlmon wininet)
 if(MSVC)
     # O manifest vem do launcher.rc; não gerar outro.
     target_link_options(BombermanUltraLauncher PRIVATE /MANIFEST:NO)
+    target_compile_options(BombermanUltraLauncher PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
     set_property(TARGET BombermanUltraLauncher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 elseif(MINGW)
     target_link_options(BombermanUltraLauncher PRIVATE -municode -static)

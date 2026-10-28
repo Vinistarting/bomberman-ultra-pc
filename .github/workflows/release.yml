@@ -1,0 +1,49 @@
+name: Release
+
+# Publica o pacote do port: o launcher compilado + o código-fonte. Nenhum
+# arquivo do jogo, nada gerado a partir dele: o jogo é compilado no PC de
+# cada usuário pelo botão "Preparar jogo".
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  LLVM_MINGW: llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64
+  LLVM_MINGW_SHA256: 55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: llvm-mingw
+        run: |
+          curl -fsSL -o /tmp/llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/$LLVM_MINGW.tar.xz"
+          echo "$LLVM_MINGW_SHA256  /tmp/llvm-mingw.tar.xz" | sha256sum -c
+          tar -xJf /tmp/llvm-mingw.tar.xz -C /tmp && mv "/tmp/$LLVM_MINGW" /tmp/llvm-mingw
+
+      - name: Launcher
+        env:
+          BMU_LLVM_MINGW: /tmp/llvm-mingw
+        run: |
+          command -v ninja || sudo apt-get install -y ninja-build
+          cmake -S launcher -B build-launcher -G Ninja -DCMAKE_BUILD_TYPE=Release -DBMU_GENERIC_ICON=ON \
+                -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/cmake/mingw-cross.cmake"
+          cmake --build build-launcher
+
+      - name: Pacote
+        run: tools/package_release.sh "${GITHUB_REF_NAME#v}" BombermanUltraLauncher.exe dist
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v v="$V" '$0 ~ "^## " v {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          cat docs/release-notes-footer.md >> notes.md
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.sha256 --title "Bomberman ULTRA PC $V" --notes-file notes.md \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.zip dist/*.sha256 --clobber

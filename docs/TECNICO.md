@@ -81,3 +81,20 @@ Com "Português (Brasil)" escolhido, o launcher monta `game\PS3_GAME\USRDIR\medi
 - **Bordas cortadas**: a janela SDL não era DPI-aware (com escala 125%/150% do Windows, 1920×1080 virava 2400×1350 e saía da tela). Agora é per-monitor DPI aware, cabe na área útil do monitor, pode ser redimensionada e mantém 16:9 com faixas pretas. A resolução do launcher é a de renderização.
 - **Fechar a janela** encerra o processo (antes o jogo seguia rodando sem bombear mensagens e o Windows marcava "não respondendo"). Esc não fecha mais o jogo. Minimizar só pausa a apresentação.
 - **Imagem errada no D3D12 → backend Vulkan**: o backend D3D12 do ps3recomp desenhava a cena errada (glifos gigantes no lugar da tela). O backend Vulkan, com `PS3RECOMP_VK_GUEST_PROGRAMS=1` (shaders do jogo traduzidos para SPIR-V pelo glslang), usa o motor de draw compartilhado e renderiza corretamente. O `main.cpp` liga esses padrões sozinho; o backend foi adaptado para Windows (carrega `vulkan-1.dll`, janela via SDL2 estático).
+
+## Como o jogo é compilado
+
+O botão **Preparar jogo** do launcher baixa o Python *embeddable* oficial (conferido por MD5 publicado em python.org) para `toolchain\python`, escreve o `python312._pth` com os caminhos de `tools\` e do ps3recomp e roda `tools\build_windows.py --pause` num console. O script só usa a biblioteca padrão e faz, em ordem:
+
+| Etapa | O que faz | Refeita quando muda |
+|---|---|---|
+| 1. ferramentas | CMake, Ninja e llvm-mingw (SHA-256 fixos) | versões |
+| 2. ps3recomp | zip do commit fixo + `patches/ps3recomp-mingw.patch` (aplicador próprio, em bytes, tudo ou nada) | commit ou patch |
+| 3. dependências | Vulkan-Headers, SDL2 estático, glslang + SPIRV-Tools estáticos | versões |
+| 4. lift | `ppu_loader`, `ppu_lifter` (paralelo), `gen_hle_nids`, jobs SPU (`extract_spu_jobs.py`), `build_spu_workloads`, `spu_lifter` | ps3recomp, EBOOT, script |
+| 5. assets | ícone (`make_icon.py`) e `strings_ptbr.xus` a partir do `media.zip` do usuário | sempre |
+| 6. compilação | `BombermanUltra_compat.exe` (x86-64-v2) e `BombermanUltra.exe` (x86-64-v3) | sempre (incremental) |
+
+Cada etapa grava em `toolchain/state/` um hash das suas entradas; se o hash bate, ela é pulada. O número de jobs é limitado a ~1 por 2 GB de RAM, porque cada pedaço do código convertido é uma unidade de compilação grande. O launcher não é recompilado nesse fluxo (`-DBMU_BUILD_LAUNCHER=OFF`), já que está aberto.
+
+Para testar o script fora do Windows há `--cmake`, `--ninja`, `--llvm-mingw`, `--deps-prefix` e `--src NOME=PASTA`; o fluxo completo (inclusive num caminho com espaços e com a llvm-mingw 20261020) foi conferido assim no Linux.

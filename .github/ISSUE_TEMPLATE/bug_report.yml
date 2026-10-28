@@ -1,0 +1,64 @@
+name: Problema / Bug
+description: Algo não funciona no jogo, no launcher ou no "Preparar jogo".
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado pelo relato! **Não anexe arquivos do jogo, licenças (.rap) nem links para eles**: a issue será apagada.
+        *English is fine too.*
+  - type: dropdown
+    id: area
+    attributes:
+      label: Onde acontece
+      options:
+        - Preparar jogo (compilação)
+        - Jogo (gráficos, áudio, travamento, desempenho)
+        - Controles
+        - Launcher
+        - Outro
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versão do port
+      description: "Ex.: 1.1.0 (arquivo VERSION) ou o commit."
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Placa de vídeo e driver
+      description: "Ex.: NVIDIA RTX 3060, driver 566.36"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: CPU, RAM e Windows
+      description: "Ex.: Ryzen 5 3600, 16 GB, Windows 11 24H2"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: O que aconteceu
+      description: O que você fez, o que esperava e o que aconteceu. Prints ajudam.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Jogo: `logs\bomberman.log`. Preparar jogo: `toolchain\build.log` (o fim do arquivo basta).
+        Arraste o arquivo aqui ou cole o trecho.
+      render: text
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Confirmação
+      options:
+        - label: Uso a versão europeia (NPEB00076) com a minha própria licença, e não anexei arquivos do jogo nem licenças.
+          required: true

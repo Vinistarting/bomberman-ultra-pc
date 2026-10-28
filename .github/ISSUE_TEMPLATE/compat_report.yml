@@ -1,0 +1,48 @@
+name: Relato de compatibilidade (GPU)
+description: Funcionou (ou não) na sua placa de vídeo? Relatos de NVIDIA e Intel ajudam muito.
+labels: [compatibilidade]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Este port foi testado em AMD (RX 580) e SwiftShader. Seu relato ajuda a completar a lista do README.
+  - type: input
+    id: gpu
+    attributes:
+      label: Placa de vídeo e driver
+      description: "Ex.: NVIDIA GTX 1660 Super, driver 566.36"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: CPU e Windows
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Resultado
+      options:
+        - Perfeito (60 FPS, sem defeitos)
+        - Jogável com defeitos
+        - Abre mas não dá para jogar
+        - Não abre
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: Resolução e opções do launcher
+      description: "Ex.: 1920 × 1080, tela cheia, 60 FPS travados"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Observações
+      description: Defeitos gráficos, quedas de FPS, notebook com duas GPUs etc.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (logs\bomberman.log)
+      description: As primeiras ~40 linhas mostram a GPU escolhida e os recursos do Vulkan.
+      render: text

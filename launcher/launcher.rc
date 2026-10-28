@@ -1,12 +1,12 @@
 #include <windows.h>
 #include "resource.h"
 
-IDI_APP ICON "bomberman.ico"
+IDI_APP ICON "launcher_icon.ico"   /* CMake copia bomberman.ico (do ICON0) ou generic.ico */
 1 RT_MANIFEST "launcher.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_APP
 BEGIN
@@ -16,7 +16,7 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "Bomberman ULTRA - Launcher (port PC)"
       VALUE "ProductName", "Bomberman ULTRA PC Port"
-      VALUE "FileVersion", "0.1.0"
+      VALUE "FileVersion", "1.0.0"
       VALUE "OriginalFilename", "BombermanUltraLauncher.exe"
     END
   END

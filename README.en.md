@@ -4,7 +4,7 @@ Native Windows port of **Bomberman ULTRA** (PlayStation Network, Hudson Soft, 20
 
 > **Not affiliated with, endorsed or sponsored by Konami, Hudson Soft or Sony Interactive Entertainment.** Bomberman is a trademark of Konami Digital Entertainment; PlayStation is a trademark of Sony Interactive Entertainment. **This repository contains no game files** — no code, art, audio, text or license. You need your own copy of the game.
 
-[Português](README.md) · [Technical notes (PT)](docs/TECNICO.md) · [Changelog](CHANGELOG.md)
+[Português](README.md) · [Technical notes (PT)](docs/TECNICO.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
 ![Gameplay at 1080p](docs/gameplay.png)
 
@@ -39,29 +39,16 @@ Tested on **AMD** Radeon RX 580 (Windows 11, full game at 60 FPS) and **SwiftSha
 
 ## Install
 
-You need: your own European PKG and RAP; RPCS3 installed **or** its source code (our tools read the keys from `rpcs3/Crypto/key_vault.h`; no keys are shipped here); Linux or **WSL** with `git curl cmake ninja-build python3 python3-pip` and `pip install cryptography pillow`; about 2 GB free (a full build of both executables took 11 minutes on 2 cores).
+You need: your own European PKG and `.rap` license; [RPCS3](https://rpcs3.net) (only to install the PKG and decrypt the EBOOT); Windows 10/11 x64, a Vulkan GPU, about **6 GB free** and an internet connection for the first build (~350 MB of tools).
 
-```sh
-git clone https://github.com/Vinistarting/bomberman-ultra-pc.git
-git clone https://github.com/sp00nznet/ps3recomp.git
-git -C ps3recomp checkout a6d76c895f77eb30b90a806c830544e61821b77f
-cd bomberman-ultra-pc
+1. Download `BombermanUltra-PC-<version>.zip` from [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) and extract it to a short path such as `C:\Games\BombermanUltra`.
+2. In RPCS3: *File → Install Packages/Raps/Edats* with the `.rap` and the PKG, then *Utilities → Decrypt PS3 Binaries* on `dev_hdd0\game\NPEB00076\USRDIR\EBOOT.BIN` (it writes `EBOOT.elf` next to it).
+3. Run **BombermanUltraLauncher.exe** (SmartScreen: *More info → Run anyway*; the launcher is unsigned) and click **Preparar jogo** (prepare game). Point it to your RPCS3 folder and, if it doesn't find it by itself, to the license. It checks that the files are the European release, copies them into `game\PS3_GAME`, downloads the toolchain into `toolchain\` (embedded Python, CMake, Ninja, llvm-mingw, ps3recomp, SDL2, glslang; prebuilt binaries are hash-checked) and builds the game in a console window: **10–40 minutes** the first time.
+4. Press **JOGAR** (play).
 
-# 1. game files -> game/PS3_GAME (via RPCS3: install the PKG, copy dev_hdd0/game/NPEB00076/*)
-python3 tools/extract_pkg.py NPEB00076.pkg /tmp/pkg --rpcs3-crypto <rpcs3>/rpcs3/Crypto
-mkdir -p game && cp -r /tmp/pkg/NPEB00076 game/PS3_GAME
+The game executable is always built on your machine from your files; no game binaries are distributed. Nothing is installed system-wide. If the build stops, clicking **Preparar jogo** again resumes; the full log is `toolchain\build.log`. To update, extract a newer release over the folder (`game\`, `user\`, `toolchain\` and `launcher.ini` are kept) and click **Preparar jogo** again: only changed steps are redone.
 
-# 2. decrypt EBOOT (or RPCS3: Utilities -> Decrypt PS3 Binaries)
-python3 tools/unself_npdrm.py game/PS3_GAME/USRDIR/EBOOT.BIN game/PS3_GAME/USRDIR/EBOOT.elf \
-    --rap EP0555-NPEB00076_00-BOMBERMANGAME001.rap --rpcs3-crypto <rpcs3>/rpcs3/Crypto
-
-# 3. toolchain (once) and build
-tools/setup_deps.sh ~/bmu-deps
-export BMU_LLVM_MINGW=~/bmu-deps/llvm-mingw BMU_DEPS=~/bmu-deps
-tools/build_cross.sh ../ps3recomp
-```
-
-Then run **BombermanUltraLauncher.exe** on Windows, let it find the license (or point to it) and press **JOGAR**. Executables are always built on your machine from your files; no prebuilt binaries are distributed.
+Linux/WSL alternative: `tools/setup_deps.sh` + `tools/build_cross.sh` (see the [Portuguese README](README.md#alternativa-compilar-no-linux-ou-wsl)).
 
 ## Controls
 

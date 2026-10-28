@@ -4,7 +4,7 @@ Port nativo para Windows do **Bomberman ULTRA** (PlayStation Network, Hudson Sof
 
 > **Não afiliado, endossado nem patrocinado pela Konami, Hudson Soft ou Sony Interactive Entertainment.** Bomberman é marca registrada da Konami Digital Entertainment. PlayStation é marca registrada da Sony Interactive Entertainment. **Este repositório não contém nenhum arquivo do jogo** — nem código, nem arte, nem áudio, nem texto, nem licença. Você precisa ter o seu próprio jogo.
 
-[English](README.en.md) · [Detalhes técnicos](docs/TECNICO.md) · [Mudanças](CHANGELOG.md)
+[English](README.en.md) · [Detalhes técnicos](docs/TECNICO.md) · [Mudanças](CHANGELOG.md) · [Como contribuir](CONTRIBUTING.md)
 
 ![Partida em 1080p](docs/gameplay.png)
 
@@ -35,18 +35,18 @@ O arquivo `.rap` é a licença da sua compra na PSN; ele é obtido do seu própr
 
 ## Como funciona
 
-1. O `EBOOT.BIN` do seu PKG é decriptado com o seu RAP.
+1. O `EBOOT.BIN` do seu PKG é decriptado com a sua licença (pelo RPCS3).
 2. O ps3recomp converte as 6.249 funções PPU em C++ e os três programas SPU (áudio MultiStream e dois jobs de renderização) em C.
 3. Tudo é compilado com o runtime HLE (`cellGcm`, `cellSpurs`, `cellPad`, sistema de arquivos, saves…) e com um backend Vulkan que executa o RSX: comandos do FIFO, shaders do jogo traduzidos para SPIR-V e texturas DXT.
 4. O resultado é um `BombermanUltra.exe` que lê `media.zip` e `Bman.bnk` direto da sua pasta do jogo.
 
-Como o código gerado vem do binário do jogo, **o executável é sempre compilado na sua máquina**, a partir dos seus arquivos. Não distribuímos executáveis prontos.
+Como o código gerado vem do binário do jogo, **o executável é sempre compilado na sua máquina**, a partir dos seus arquivos: o botão **Preparar jogo** do launcher faz isso sozinho. Não distribuímos executáveis do jogo.
 
 ## Compatibilidade
 
 | | |
 |---|---|
-| Sistema | Windows 10/11 64 bits (o build roda em Linux ou WSL) |
+| Sistema | Windows 10/11 64 bits (o jogo é compilado no próprio PC pelo launcher) |
 | Vídeo | qualquer GPU com **Vulkan 1.0** e driver atualizado |
 | CPU | x86-64 com AVX2 (versão principal) ou SSE4.2 (versão `compat`, escolhida sozinha pelo launcher) |
 
@@ -70,61 +70,68 @@ Se você tem NVIDIA, um relato (funcionou ou não, com o `logs\bomberman.log`) a
 
 ### O que você precisa
 
-- O **seu** PKG do Bomberman ULTRA europeu (`NPEB00076`) e o **seu** RAP `EP0555-NPEB00076_00-BOMBERMANGAME001.rap`.
-- Para extrair e decriptar: o [RPCS3](https://rpcs3.net) instalado **ou** o código-fonte dele (as ferramentas daqui leem as chaves de `rpcs3/Crypto/key_vault.h`; nenhuma chave vem neste repositório).
-- Para compilar: Linux ou **WSL** (Ubuntu 22.04+), com `git curl cmake ninja-build python3 python3-pip`; `pip install cryptography pillow`.
-- Cerca de 2 GB livres; o build completo (as duas versões do exe) levou 11 minutos numa máquina de 2 núcleos.
+- O **seu** Bomberman ULTRA europeu (`NPEB00076`): o PKG e a licença `EP0555-NPEB00076_00-BOMBERMANGAME001.rap`.
+- O [RPCS3](https://rpcs3.net), só para instalar o PKG e decriptar o EBOOT (o port não usa o RPCS3 para rodar).
+- Windows 10/11 64 bits, GPU com Vulkan, cerca de **6 GB livres** e internet na primeira preparação (ela baixa ~350 MB de ferramentas).
 
 ### Passos
 
-1. **Clone** este repositório e o ps3recomp, lado a lado:
-   ```sh
-   git clone https://github.com/Vinistarting/bomberman-ultra-pc.git
-   git clone https://github.com/sp00nznet/ps3recomp.git
-   git -C ps3recomp checkout a6d76c895f77eb30b90a806c830544e61821b77f
-   ```
-2. **Extraia o PKG** para `game/`. Pelo RPCS3: instale o PKG e copie `dev_hdd0/game/NPEB00076/*` para `bomberman-ultra-pc/game/PS3_GAME/`. Ou, pelo script:
-   ```sh
-   python3 tools/extract_pkg.py NPEB00076.pkg /tmp/pkg --rpcs3-crypto <rpcs3>/rpcs3/Crypto
-   mkdir -p game && cp -r /tmp/pkg/NPEB00076 game/PS3_GAME
-   ```
-3. **Decripte o EBOOT** para `game/PS3_GAME/USRDIR/EBOOT.elf`. No RPCS3: *Utilitários → Decrypt PS3 Binaries* (gera `EBOOT.elf`). Ou:
-   ```sh
-   python3 tools/unself_npdrm.py game/PS3_GAME/USRDIR/EBOOT.BIN game/PS3_GAME/USRDIR/EBOOT.elf \
-       --rap EP0555-NPEB00076_00-BOMBERMANGAME001.rap --rpcs3-crypto <rpcs3>/rpcs3/Crypto
-   ```
-4. **Prepare a toolchain** (uma vez só; baixa a llvm-mingw e compila SDL2 e glslang para Windows):
-   ```sh
-   tools/setup_deps.sh ~/bmu-deps
-   export BMU_LLVM_MINGW=~/bmu-deps/llvm-mingw BMU_DEPS=~/bmu-deps
-   ```
-5. **Compile**:
-   ```sh
-   tools/build_cross.sh ../ps3recomp
-   ```
-   Saem `bin/BombermanUltra.exe`, `bin/BombermanUltra_compat.exe` e `BombermanUltraLauncher.exe`, além do ícone e da tradução PT-BR, gerados dos seus arquivos.
-6. Copie a pasta inteira para o Windows (se compilou no WSL, ela já está acessível), abra o **BombermanUltraLauncher.exe**, deixe-o encontrar a licença (ou use **Localizar licença**) e clique em **JOGAR**.
+1. **Baixe** o `BombermanUltra-PC-<versão>.zip` em [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) e extraia num caminho curto, por exemplo `C:\Jogos\BombermanUltra`.
+2. **No RPCS3**: *File → Install Packages/Raps/Edats* com o `.rap` e o PKG. Depois *Utilities → Decrypt PS3 Binaries* e escolha `dev_hdd0\game\NPEB00076\USRDIR\EBOOT.BIN`: o RPCS3 grava o `EBOOT.elf` ao lado.
+3. **Abra o `BombermanUltraLauncher.exe`** e clique em **Preparar jogo**. Se o Windows avisar que o app não é reconhecido, use *Mais informações → Executar assim mesmo* (o launcher não é assinado).
+   - Aponte a pasta do RPCS3 (ou `dev_hdd0\game\NPEB00076`). O launcher confere que é a versão europeia e que o `EBOOT.elf` é o decriptado dela, e copia `PARAM.SFO`, `ICON0.PNG`, `media.zip`, `Bman.bnk` e `EBOOT.elf` para `game\PS3_GAME`.
+   - Aponte a licença `.rap`, se ele não achar sozinho.
+   - Confirme. Uma janela de console baixa as ferramentas para `toolchain\` e compila o jogo: **10 a 40 minutos** na primeira vez, conforme o processador.
+4. Clique em **JOGAR**.
 
-A pasta final fica assim:
+O que o **Preparar jogo** baixa (tudo fica em `toolchain\`, nada é instalado no Windows):
+
+| Ferramenta | De onde | Para quê |
+|---|---|---|
+| Python 3.12 embutido | python.org | roda o `tools\build_windows.py` e o ps3recomp |
+| CMake 3.31, Ninja 1.12 | GitHub (Kitware, ninja-build) | build |
+| llvm-mingw 20261020 | GitHub (mstorsjo) | compilador clang para Windows |
+| ps3recomp (commit fixo) + `patches\ps3recomp-mingw.patch` | GitHub (sp00nznet) | conversão PPU/SPU e runtime |
+| SDL2, Vulkan-Headers, glslang, SPIRV-Tools | GitHub (libsdl-org, KhronosGroup) | janela, controles, shaders |
+
+Os binários prontos (Python, CMake, Ninja, llvm-mingw) são conferidos por hash. Se algo falhar, clicar em **Preparar jogo** de novo continua de onde parou; o log completo fica em `toolchain\build.log`.
+
+### Alternativa: compilar no Linux ou WSL
+
+```sh
+git clone https://github.com/Vinistarting/bomberman-ultra-pc.git
+git clone https://github.com/sp00nznet/ps3recomp.git
+git -C ps3recomp checkout a6d76c895f77eb30b90a806c830544e61821b77f
+cd bomberman-ultra-pc
+# arquivos do jogo em game/PS3_GAME (PARAM.SFO, ICON0.PNG, USRDIR/{EBOOT.elf,media.zip,Bman.bnk})
+tools/setup_deps.sh ~/bmu-deps        # uma vez: llvm-mingw, SDL2 e glslang para Windows
+export BMU_LLVM_MINGW=~/bmu-deps/llvm-mingw BMU_DEPS=~/bmu-deps
+tools/build_cross.sh ../ps3recomp
+```
+
+Sem o RPCS3, `tools/extract_pkg.py` e `tools/unself_npdrm.py` extraem o PKG e decriptam o EBOOT lendo as chaves do código-fonte do RPCS3 (`--rpcs3-crypto <rpcs3>/rpcs3/Crypto`); nenhuma chave vem neste repositório.
+
+### Pasta final
 
 ```
-bomberman-ultra-pc/
+BombermanUltra/
 ├── BombermanUltraLauncher.exe
-├── bin/BombermanUltra.exe, BombermanUltra_compat.exe
+├── bin/BombermanUltra.exe, BombermanUltra_compat.exe   (compilados no seu PC)
 ├── game/
 │   ├── licenses/EP0555-NPEB00076_00-BOMBERMANGAME001.rap   (o launcher copia para cá)
 │   └── PS3_GAME/{ICON0.PNG, PARAM.SFO, USRDIR/{EBOOT.elf, media.zip, Bman.bnk}}
-├── traducao/strings_ptbr.xus
+├── toolchain/       ferramentas e código baixados pelo Preparar jogo
+├── traducao/        tradução PT-BR (o .xus é gerado do seu media.zip)
 └── user/            saves e cache (criado no 1º uso)
 ```
 
 ## Atualizar
 
-`git pull` neste repositório e rode `tools/build_cross.sh` de novo. Saves (`user/`) e configurações (`launcher.ini`) são mantidos.
+Baixe a release nova e extraia **por cima** da pasta atual; `game\`, `user\`, `toolchain\` e `launcher.ini` são mantidos. Depois clique em **Preparar jogo**: só as etapas que mudaram são refeitas.
 
 ## Desinstalar
 
-Apague a pasta. Para manter os saves, guarde antes `user/dev_hdd0`. O atalho da Steam sai pela própria biblioteca da Steam (*Gerenciar → Remover atalho*).
+Apague a pasta. Para manter os saves, guarde antes `user\dev_hdd0`. Depois de compilar, `toolchain\` pode ser apagada para liberar espaço (o próximo Preparar jogo baixa tudo de novo). O atalho da Steam sai pela própria biblioteca da Steam (*Gerenciar → Remover atalho*).
 
 ## Controles
 
@@ -153,6 +160,7 @@ Controles seguem o layout do PlayStation pela **posição** dos botões (o de ba
 | Áudio | ligado, mudo ou desativado |
 | Limitar a 60 FPS | ligado = velocidade original; desligado = o jogo acelera se o PC passar de 60 |
 | Contador de FPS | no canto superior direito |
+| Preparar jogo | importa o jogo da pasta do RPCS3 e compila o port neste PC |
 | Localizar licença | aponta o `.rap` |
 | Adicionar à Steam | cria o atalho de jogo não-Steam (`--jogar`: abre direto no jogo) |
 
@@ -174,7 +182,7 @@ Controles seguem o layout do PlayStation pela **posição** dos botões (o de ba
 - **ps3recomp** e **flOw** — sp00nznet: toda a base de recompilação estática de PS3.
 - **RPCS3** — referência para formatos e algoritmos do PS3.
 - **SDL2**, **glslang/SPIRV-Tools**, **Vulkan-Headers**, **llvm-mingw** — ver [THIRD_PARTY.md](THIRD_PARTY.md).
-- **ACFA-Port** — SulphurS16: referência de organização deste repositório.
+- **ACFA-Port** — SulphurS16: referência de organização deste repositório e da ideia de compilar no PC do usuário.
 
 ## Licença
 

@@ -1,0 +1,35 @@
+﻿BOMBERMAN ULTRA — PORT NÃO OFICIAL PARA PC
+==========================================
+
+Este pacote NÃO contém o jogo. Ele traz o launcher e o código-fonte do port;
+o jogo é compilado no seu PC, a partir da SUA cópia, pelo botão "Preparar jogo".
+
+Você precisa de:
+  - Bomberman ULTRA versão EUROPEIA (NPEB00076): o PKG e a licença
+    EP0555-NPEB00076_00-BOMBERMANGAME001.rap
+  - RPCS3 (https://rpcs3.net), só para instalar o PKG e decriptar o EBOOT
+  - Windows 10/11 64 bits, placa de vídeo com Vulkan, ~6 GB livres e internet
+    na primeira preparação
+
+Passo a passo:
+  1. Extraia esta pasta num caminho curto, por exemplo C:\Jogos\BombermanUltra
+  2. No RPCS3: File > Install Packages/Raps/Edats; instale o .rap e o PKG.
+  3. No RPCS3: Utilities > Decrypt PS3 Binaries; escolha
+     dev_hdd0\game\NPEB00076\USRDIR\EBOOT.BIN (gera o EBOOT.elf ao lado).
+  4. Abra o BombermanUltraLauncher.exe (se o Windows avisar: "Mais informações" >
+     "Executar assim mesmo") e clique em "Preparar jogo". Aponte a pasta do
+     RPCS3 e a licença .rap quando ele pedir.
+  5. Uma janela de console compila o jogo (10 a 40 minutos na primeira vez).
+     No fim, clique em JOGAR.
+
+Ajuda, detalhes e relatos de problemas:
+  https://github.com/Vinistarting/bomberman-ultra-pc
+
+---------------------------------------------------------------------------
+ENGLISH: this package does NOT include the game. Install the European PKG
+and its .rap license in RPCS3, decrypt USRDIR\EBOOT.BIN with Utilities >
+Decrypt PS3 Binaries, then open BombermanUltraLauncher.exe and click
+"Preparar jogo" (prepare game): it builds the game on your PC from your own
+files. Then press JOGAR (play).
+
+Not affiliated with Konami, Hudson Soft or Sony Interactive Entertainment.

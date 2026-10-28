@@ -35,3 +35,6 @@ launcher.ini
 *.obj
 *.o
 __pycache__/
+
+# ── Toolchain baixada pelo "Preparar jogo" (tools/build_windows.py) ──
+toolchain/

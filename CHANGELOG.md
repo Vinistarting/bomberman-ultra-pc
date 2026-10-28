@@ -1,5 +1,12 @@
 # Mudanças
 
+## 1.1.0 — compilar no próprio Windows
+
+- **Preparar jogo** no launcher: aponta o jogo instalado no RPCS3, confere que é o europeu (`PARAM.SFO` e hash do `EBOOT.elf`), copia os arquivos, procura a licença no RPCS3 e compila o port neste PC. Sem WSL e sem instalar nada no Windows: baixa Python embutido, CMake, Ninja, llvm-mingw, ps3recomp, SDL2 e glslang para `toolchain\`, com hash conferido nos binários.
+- `tools/build_windows.py`: build completo em etapas que continuam de onde pararam e só refazem o que mudou depois de uma atualização; aplica o patch do ps3recomp sem git.
+- Pacote de release (launcher + código-fonte, nada do jogo) e CI que confere o patch do ps3recomp e compila o launcher.
+- Ícone genérico no launcher quando ainda não há `ICON0.PNG`; `CONTRIBUTING.md`, modelos de issue (bug e compatibilidade de GPU) e de PR.
+
 ## 1.0.0 — primeira versão pública
 
 - Port completo do Bomberman ULTRA europeu (`NPEB00076`): boot, menus, partidas locais com até 4 jogadores, saves.

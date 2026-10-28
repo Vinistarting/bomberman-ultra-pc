@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  LLVM_MINGW: llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64
+  LLVM_MINGW_SHA256: 55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335
+  PS3RECOMP_COMMIT: a6d76c895f77eb30b90a806c830544e61821b77f
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nada do jogo no repositório
+        run: |
+          bad=$(git ls-files | grep -Ei '\.(rap|rif|pkg|edat|sdat|elf|bnk|sfo|exe|xus)$|(^|/)(EBOOT\.BIN|media\.zip|ICON0\.PNG|act\.dat)$|^(recompiled|spu_gen[^/]*|spu_jobs|analysis|bin|game)/' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Arquivos que não podem estar no repositório:"; echo "$bad"; exit 1
+          fi
+
+      - name: Ferramentas Python
+        run: |
+          python3 -m py_compile tools/*.py
+          python3 tools/make_icon.py /nao/existe /tmp/generic.ico
+
+      - name: Patch do ps3recomp aplica no commit fixado (igual ao git apply)
+        run: |
+          git clone -q https://github.com/sp00nznet/ps3recomp.git /tmp/p3
+          git -C /tmp/p3 checkout -q "$PS3RECOMP_COMMIT"
+          cp -r /tmp/p3 /tmp/p3-git
+          git -C /tmp/p3-git apply "$GITHUB_WORKSPACE/patches/ps3recomp-mingw.patch"
+          python3 -c "import sys; sys.path.insert(0, 'tools'); import build_windows as b; b.apply_patch('patches/ps3recomp-mingw.patch', '/tmp/p3')"
+          diff -r --exclude=.git /tmp/p3 /tmp/p3-git
+
+      - name: llvm-mingw
+        run: |
+          curl -fsSL -o /tmp/llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/$LLVM_MINGW.tar.xz"
+          echo "$LLVM_MINGW_SHA256  /tmp/llvm-mingw.tar.xz" | sha256sum -c
+          tar -xJf /tmp/llvm-mingw.tar.xz -C /tmp && mv "/tmp/$LLVM_MINGW" /tmp/llvm-mingw
+
+      - name: Launcher
+        env:
+          BMU_LLVM_MINGW: /tmp/llvm-mingw
+        run: |
+          command -v ninja || sudo apt-get install -y ninja-build
+          cmake -S launcher -B build-launcher -G Ninja -DCMAKE_BUILD_TYPE=Release -DBMU_GENERIC_ICON=ON \
+                -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/cmake/mingw-cross.cmake"
+          cmake --build build-launcher
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BombermanUltraLauncher
+          path: BombermanUltraLauncher.exe
