@@ -31,6 +31,11 @@ jobs:
           python3 -m py_compile tools/*.py
           python3 tools/make_icon.py /nao/existe /tmp/generic.ico
 
+      - name: AES sem dependências (aes_compat) confere com o cryptography
+        run: |
+          python3 -c "import cryptography" 2>/dev/null || python3 -m pip install --quiet --break-system-packages cryptography
+          python3 tools/test_aes_compat.py
+
       - name: Patch do ps3recomp aplica no commit fixado (igual ao git apply)
         run: |
           git clone -q https://github.com/sp00nznet/ps3recomp.git /tmp/p3

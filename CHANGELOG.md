@@ -1,5 +1,12 @@
 # Mudanças
 
+## 1.2.0 — direto do PKG, sem RPCS3
+
+- **Preparar jogo** agora pergunta de onde vêm os arquivos: **Selecionar o PKG do jogo** (recomendado) ou o jogo instalado no RPCS3.
+- O launcher localiza o PKG sozinho pelo cabeçalho (pasta do port e até 3 pastas acima, Downloads, Área de Trabalho, Documentos), qualquer que seja o nome do arquivo, ou deixa escolher; recusa PKGs de outra região.
+- O build extrai do PKG só o que o port usa, decripta o `EBOOT.BIN` com a licença `.rap` do usuário e confere o resultado pelo hash da versão europeia 01.00. As chaves públicas do PS3 vêm dos `key_vault` do RPCS3 num commit fixo, conferidos por SHA-256; nenhuma chave no repositório.
+- `aes_compat.py` funciona sem pacotes extras: usa a BCrypt do Windows (com autoteste FIPS-197) no Python embutido e tem AES em Python puro como último recurso.
+
 ## 1.1.0 — compilar no próprio Windows
 
 - **Preparar jogo** no launcher: aponta o jogo instalado no RPCS3, confere que é o europeu (`PARAM.SFO` e hash do `EBOOT.elf`), copia os arquivos, procura a licença no RPCS3 e compila o port neste PC. Sem WSL e sem instalar nada no Windows: baixa Python embutido, CMake, Ninja, llvm-mingw, ps3recomp, SDL2 e glslang para `toolchain\`, com hash conferido nos binários.

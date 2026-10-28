@@ -84,10 +84,11 @@ Com "Português (Brasil)" escolhido, o launcher monta `game\PS3_GAME\USRDIR\medi
 
 ## Como o jogo é compilado
 
-O botão **Preparar jogo** do launcher baixa o Python *embeddable* oficial (conferido por MD5 publicado em python.org) para `toolchain\python`, escreve o `python312._pth` com os caminhos de `tools\` e do ps3recomp e roda `tools\build_windows.py --pause` num console. O script só usa a biblioteca padrão e faz, em ordem:
+O botão **Preparar jogo** do launcher baixa o Python *embeddable* oficial (conferido por MD5 publicado em python.org) para `toolchain\python`, escreve o `python312._pth` com os caminhos de `tools\` e do ps3recomp e roda `tools\build_windows.py --pause` num console. O script só usa a biblioteca padrão (o AES vem da BCrypt do Windows via ctypes, ver `tools/aes_compat.py`) e faz, em ordem:
 
 | Etapa | O que faz | Refeita quando muda |
 |---|---|---|
+| 0. PKG (opcional, `--pkg`) | extrai `PARAM.SFO`, `ICON0.PNG`, `EBOOT.BIN`, `media.zip`, `Bman.bnk`; RAP → RIF → klicensee e unself do EBOOT (`extract_pkg.py`, `unself_npdrm.py`, chaves dos `key_vault` do RPCS3 num commit fixo); confere o hash dos segmentos | a cada `--pkg` |
 | 1. ferramentas | CMake, Ninja e llvm-mingw (SHA-256 fixos) | versões |
 | 2. ps3recomp | zip do commit fixo + `patches/ps3recomp-mingw.patch` (aplicador próprio, em bytes, tudo ou nada) | commit ou patch |
 | 3. dependências | Vulkan-Headers, SDL2 estático, glslang + SPIRV-Tools estáticos | versões |

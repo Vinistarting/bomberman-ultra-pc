@@ -39,12 +39,14 @@ Tested on **AMD** Radeon RX 580 (Windows 11, full game at 60 FPS) and **SwiftSha
 
 ## Install
 
-You need: your own European PKG and `.rap` license; [RPCS3](https://rpcs3.net) (only to install the PKG and decrypt the EBOOT); Windows 10/11 x64, a Vulkan GPU, about **6 GB free** and an internet connection for the first build (~350 MB of tools).
+You need: your own European `.pkg` and its `.rap` license; Windows 10/11 x64, a Vulkan GPU, about **6 GB free** and an internet connection for the first build (~350 MB of tools). RPCS3 is **not** required.
 
-1. Download `BombermanUltra-PC-<version>.zip` from [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) and extract it to a short path such as `C:\Games\BombermanUltra`.
-2. In RPCS3: *File → Install Packages/Raps/Edats* with the `.rap` and the PKG, then *Utilities → Decrypt PS3 Binaries* on `dev_hdd0\game\NPEB00076\USRDIR\EBOOT.BIN` (it writes `EBOOT.elf` next to it).
-3. Run **BombermanUltraLauncher.exe** (SmartScreen: *More info → Run anyway*; the launcher is unsigned) and click **Preparar jogo** (prepare game). Point it to your RPCS3 folder and, if it doesn't find it by itself, to the license. It checks that the files are the European release, copies them into `game\PS3_GAME`, downloads the toolchain into `toolchain\` (embedded Python, CMake, Ninja, llvm-mingw, ps3recomp, SDL2, glslang; prebuilt binaries are hash-checked) and builds the game in a console window: **10–40 minutes** the first time.
+1. Download `BombermanUltra-PC-<version>.zip` from [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) and extract it to a short path such as `C:\Games\BombermanUltra`. Leave the `.pkg` and `.rap` in the port folder, Downloads, Desktop or Documents and the launcher finds them (or point to them).
+2. Run **BombermanUltraLauncher.exe** (SmartScreen: *More info → Run anyway*; the launcher is unsigned), click **Preparar jogo** (prepare game) and choose **Selecionar o PKG do jogo** (select the game PKG). The PKG is recognized by its header, so the file name doesn't matter.
+3. A console window extracts only what the port uses from the PKG into `game\PS3_GAME`, decrypts `EBOOT.BIN` with your license (checked against the European 01.00 hash), downloads the toolchain into `toolchain\` (embedded Python, RPCS3's public `key_vault` files at a pinned commit, CMake, Ninja, llvm-mingw, ps3recomp, SDL2, glslang; all prebuilt files are hash-checked) and builds the game: **10–40 minutes** the first time.
 4. Press **JOGAR** (play).
+
+The other option, *Usar o jogo instalado no RPCS3*, imports `dev_hdd0\game\NPEB00076` from RPCS3 (with `EBOOT.elf` from *Utilities → Decrypt PS3 Binaries*).
 
 The game executable is always built on your machine from your files; no game binaries are distributed. Nothing is installed system-wide. If the build stops, clicking **Preparar jogo** again resumes; the full log is `toolchain\build.log`. To update, extract a newer release over the folder (`game\`, `user\`, `toolchain\` and `launcher.ini` are kept) and click **Preparar jogo** again: only changed steps are redone.
 

@@ -28,6 +28,9 @@
 #endif
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00   /* TaskDialogIndirect e afins */
+#endif
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -1379,6 +1382,141 @@ static bool import_game(void)
     return true;
 }
 
+/* ---- PKG do usuário: o build_windows.py extrai e decripta (sem RPCS3) ---- */
+static wchar_t g_pkg[MAX_PATH];   /* PKG escolhido para este "Preparar jogo" ("" = nenhum) */
+
+/* Lê o content ID do cabeçalho do PKG (texto puro em 0x30). */
+static bool pkg_content_id(const wchar_t* path, char* cid, size_t n)
+{
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    unsigned char hd[0x80]; DWORD got = 0;
+    const BOOL rd = ReadFile(h, hd, sizeof hd, &got, nullptr);
+    CloseHandle(h);
+    if (!rd || got != sizeof hd || memcmp(hd, "\x7fPKG", 4)) return false;
+    size_t m = 0;
+    while (m < 0x30 && hd[0x30 + m] >= 0x20 && hd[0x30 + m] < 0x7f) m++;
+    m = std::min(m, n - 1);
+    memcpy(cid, hd + 0x30, m);
+    cid[m] = 0;
+    return true;
+}
+static bool pkg_is_ours(const wchar_t* path)
+{
+    char cid[64];
+    return pkg_content_id(path, cid, sizeof cid) && !strcmp(cid, "EP0555-NPEB00076_00-BOMBERMANGAME001");
+}
+static bool pkg_search_dir(const wchar_t* dir, wchar_t* out)
+{
+    wchar_t q[MAX_PATH];
+    path_join(q, dir, L"*.pkg");
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(q, &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool found = false;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        path_join(out, dir, fd.cFileName);
+        if (pkg_is_ours(out)) { found = true; break; }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return found;
+}
+/* Mesmos lugares da licença: pasta do launcher e até 3 acima, Downloads,
+ * Área de Trabalho e Documentos. */
+static bool pkg_autofind(wchar_t* out)
+{
+    wchar_t d[MAX_PATH];
+    wcscpy(d, g_root);
+    for (int up = 0; up < 4; up++) {
+        if (pkg_search_dir(d, out)) return true;
+        wchar_t* sl = wcsrchr(d, L'\\');
+        if (!sl || sl == d + 2) break;
+        *sl = 0;
+    }
+    static const KNOWNFOLDERID* kf[] = { &FOLDERID_Downloads, &FOLDERID_Desktop, &FOLDERID_Documents };
+    for (const KNOWNFOLDERID* id : kf) {
+        PWSTR k = nullptr;
+        if (SHGetKnownFolderPath(*id, 0, nullptr, &k) == S_OK) {
+            const bool f = pkg_search_dir(k, out);
+            CoTaskMemFree(k);
+            if (f) return true;
+        }
+    }
+    return false;
+}
+
+/* Localiza (ou deixa o usuário selecionar) o PKG europeu; grava em g_pkg. */
+static bool pick_pkg(void)
+{
+    wchar_t found[MAX_PATH];
+    if (pkg_autofind(found)) {
+        std::wstring msg = L"Encontrei o PKG do Bomberman ULTRA europeu:\n\n";
+        msg += found;
+        msg += L"\n\nUsar este arquivo? (Não = escolher outro)";
+        const int r = MessageBoxW(g_wnd, msg.c_str(), APP_TITLE, MB_ICONQUESTION | MB_YESNOCANCEL);
+        if (r == IDCANCEL) return false;
+        if (r == IDYES) { wcscpy(g_pkg, found); return true; }
+    }
+    wchar_t file[MAX_PATH] = L"";
+    OPENFILENAMEW ofn; ZeroMemory(&ofn, sizeof ofn);
+    ofn.lStructSize = sizeof ofn;
+    ofn.hwndOwner = g_wnd;
+    ofn.lpstrFilter = L"PKG do PS3 (*.pkg)\0*.pkg\0Todos os arquivos\0*.*\0";
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = L"Selecione o PKG do Bomberman ULTRA europeu (NPEB00076)";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameW(&ofn)) return false;
+    char cid[64] = "";
+    if (!pkg_content_id(file, cid, sizeof cid)) {
+        MessageBoxW(g_wnd, L"Esse arquivo não é um PKG de PS3.", APP_TITLE, MB_ICONWARNING);
+        return false;
+    }
+    if (strcmp(cid, "EP0555-NPEB00076_00-BOMBERMANGAME001")) {
+        wchar_t msg[400];
+        _snwprintf(msg, 400, L"Esse PKG é de outro jogo ou outra região (%S).\n\n"
+                             L"O port só funciona com o Bomberman ULTRA europeu:\nEP0555-NPEB00076_00-BOMBERMANGAME001",
+                   cid[0] ? cid : "?");
+        MessageBoxW(g_wnd, msg, APP_TITLE, MB_ICONWARNING);
+        return false;
+    }
+    wcscpy(g_pkg, file);
+    return true;
+}
+
+/* De onde vêm os arquivos do jogo: 1 = PKG, 2 = RPCS3, 0 = cancelado. */
+static int choose_import_method(void)
+{
+    enum { BTN_PKG = 101, BTN_RPCS3 = 102 };
+    TASKDIALOG_BUTTON btns[] = {
+        { BTN_PKG,   L"Selecionar o PKG do jogo (recomendado)\n"
+                     L"O launcher extrai e decripta o PKG com a sua licença .rap. Não precisa do RPCS3." },
+        { BTN_RPCS3, L"Usar o jogo instalado no RPCS3\n"
+                     L"Pasta dev_hdd0\\game\\NPEB00076, com o EBOOT.elf decriptado pelo RPCS3." },
+    };
+    TASKDIALOGCONFIG tc; ZeroMemory(&tc, sizeof tc);
+    tc.cbSize = sizeof tc;
+    tc.hwndParent = g_wnd;
+    tc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+    tc.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+    tc.pszWindowTitle = APP_TITLE;
+    tc.pszMainIcon = TD_INFORMATION_ICON;
+    tc.pszMainInstruction = L"De onde vêm os arquivos do jogo?";
+    tc.pszContent = L"Você precisa do Bomberman ULTRA europeu (NPEB00076) e da licença "
+                    L"EP0555-NPEB00076_00-BOMBERMANGAME001.rap. Nada sai do seu PC.";
+    tc.pButtons = btns;
+    tc.cButtons = 2;
+    tc.nDefaultButton = BTN_PKG;
+    int pressed = 0;
+    if (SUCCEEDED(TaskDialogIndirect(&tc, &pressed, nullptr, nullptr)))
+        return pressed == BTN_PKG ? 1 : pressed == BTN_RPCS3 ? 2 : 0;
+    /* Sem TaskDialog (não deveria acontecer no Windows 10/11): caixa simples. */
+    const int r = MessageBoxW(g_wnd, L"Selecionar o PKG do jogo?\n\nSim = PKG (sem RPCS3)\nNão = jogo instalado no RPCS3",
+                              APP_TITLE, MB_ICONQUESTION | MB_YESNOCANCEL);
+    return r == IDYES ? 1 : r == IDNO ? 2 : 0;
+}
+
 static bool file_md5_is(const wchar_t* path, const unsigned char want[16])
 {
     std::vector<unsigned char> d;
@@ -1446,9 +1584,9 @@ static DWORD WINAPI build_thread(LPVOID)
     write_whole(pth, std::vector<unsigned char>(u.begin(), u.end()));
 
     SetWindowTextW(g_status, L"Compilando o jogo neste PC\u2026 acompanhe na janela do console.");
-    wchar_t cmd[4 * MAX_PATH];
-    _snwprintf(cmd, sizeof cmd / sizeof cmd[0], L"\"%s\" -X utf8 \"%s\\tools\\build_windows.py\" --root \"%s\" --pause",
-               py_exe, g_root, g_root);
+    wchar_t cmd[5 * MAX_PATH];
+    _snwprintf(cmd, sizeof cmd / sizeof cmd[0], L"\"%s\" -X utf8 \"%s\\tools\\build_windows.py\" --root \"%s\" --pause%s%s%s",
+               py_exe, g_root, g_root, g_pkg[0] ? L" --pkg \"" : L"", g_pkg, g_pkg[0] ? L"\"" : L"");
     const DWORD code = run_wait(cmd, g_root, CREATE_NEW_CONSOLE, L"Bomberman ULTRA \u2014 Preparar jogo");
     if (code == (DWORD)-1)
         PostMessageW(g_wnd, WM_APP_BUILD_DONE, 1, (LPARAM)L"Não consegui iniciar o Python embutido.");
@@ -1472,12 +1610,20 @@ static void prepare_game(void)
                     APP_TITLE, MB_ICONERROR);
         return;
     }
-    if (!game_files_ready() && !import_game()) { refresh_status(); return; }
-    game_path(p, L"PS3_GAME\\USRDIR\\EBOOT.elf");
-    if (!eboot_is_europe(p)) {
-        MessageBoxW(g_wnd, L"O EBOOT.elf na pasta game não é o europeu decriptado. Aponte o jogo de novo.",
-                    APP_TITLE, MB_ICONWARNING);
-        if (!import_game()) { refresh_status(); return; }
+    g_pkg[0] = 0;
+    bool need_import = !game_files_ready();
+    if (!need_import) {
+        game_path(p, L"PS3_GAME\\USRDIR\\EBOOT.elf");
+        if (!eboot_is_europe(p)) {
+            MessageBoxW(g_wnd, L"O EBOOT.elf na pasta game não é o europeu decriptado. Aponte o jogo de novo.",
+                        APP_TITLE, MB_ICONWARNING);
+            need_import = true;
+        }
+    }
+    if (need_import) {
+        const int how = choose_import_method();
+        if (how == 0) return;
+        if (how == 1 ? !pick_pkg() : !import_game()) { refresh_status(); return; }
     }
     refresh_status();
     if (!license_ok() && !license_autofind()) {
@@ -1490,7 +1636,10 @@ static void prepare_game(void)
     }
 
     std::wstring msg;
-    if (find_game_exe())
+    if (g_pkg[0])
+        msg += L"O PKG será extraído e decriptado com a sua licença para a pasta game (as chaves públicas do PS3 "
+               L"vêm do código-fonte do RPCS3 no GitHub, conferidas por hash). Depois o jogo é compilado.\n\n";
+    else if (find_game_exe())
         msg += L"O jogo já está compilado. Compilar de novo (por exemplo, depois de atualizar o port)?\n\n";
     msg += L"O launcher vai baixar as ferramentas de compilação (Python, CMake, Ninja, llvm-mingw e os códigos do "
            L"ps3recomp, SDL2 e glslang: cerca de 350 MB, só na primeira vez) e converter o SEU jogo em um "
@@ -1505,6 +1654,7 @@ static void prepare_game(void)
     msg += L"\nContinuar?";
     if (MessageBoxW(g_wnd, msg.c_str(), APP_TITLE, MB_ICONQUESTION | MB_YESNO) != IDYES) return;
 
+    if (g_pkg[0]) reload_banner(true);   /* o ICON0.PNG vai ser gravado de novo */
     g_building = true;
     EnableWindow(GetDlgItem(g_wnd, IDC_PREPARE), FALSE);
     refresh_status();
@@ -1692,6 +1842,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     }
     case WM_APP_BUILD_DONE: {
         g_building = false;
+        reload_banner(false);   /* o ICON0.PNG pode ter vindo do PKG agora */
         EnableWindow(GetDlgItem(h, IDC_PREPARE), TRUE);
         refresh_status();
         ShowWindow(h, SW_RESTORE);

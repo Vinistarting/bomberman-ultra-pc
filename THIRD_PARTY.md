@@ -13,10 +13,11 @@ Este repositório não inclui código de terceiros. Os componentes abaixo são b
 | [Python](https://www.python.org) (pacote *embeddable* 3.12) | roda o `build_windows.py` e o ps3recomp; só no build | PSF License |
 | [CMake](https://cmake.org) | build; só no build | BSD-3-Clause |
 | [Ninja](https://ninja-build.org) | build; só no build | Apache-2.0 |
+| [RPCS3](https://github.com/RPCS3/rpcs3) `rpcs3/Crypto/key_vault.h` e `key_vault.cpp` (commit fixo) | lidos como dados pelos scripts para extrair o PKG e decriptar o EBOOT com a licença do usuário; só no build, nada é compilado deles | GPL-2.0 |
 
 Referências usadas no desenvolvimento, sem código copiado para cá:
 
-- [RPCS3](https://github.com/RPCS3/rpcs3): algoritmos de RAP→RIF e unself. As chaves **não** estão neste repositório; `tools/unself_npdrm.py` e `tools/extract_pkg.py` as leem do código-fonte do RPCS3 que o usuário já tem.
+- [RPCS3](https://github.com/RPCS3/rpcs3): algoritmos de PKG, RAP→RIF e unself (portados para Python em `tools/extract_pkg.py` e `tools/unself_npdrm.py`). As chaves **não** estão neste repositório: são lidas dos `key_vault` do RPCS3, baixados no PC do usuário durante o build (ou de um código-fonte local, com `--rpcs3-crypto`).
 - [flOw (sp00nznet)](https://github.com/sp00nznet/flow): arquitetura de port com o ps3recomp.
 - [ARMORED CORE for Answer PC port](https://github.com/SulphurS16/ACFA-Port): modelo de organização e de cuidado com conteúdo do jogo.
 

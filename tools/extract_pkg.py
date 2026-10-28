@@ -63,34 +63,48 @@ class Pkg:
             name = self.read(no, ns).decode("utf-8", "replace")
             yield dict(name=name, offset=do, size=ds, flags=flags)
 
-def main():
+def extract(pkg_path, root, key, only=None, log=print):
+    """Extrai os itens do PKG para root/<nome do item>. only: nomes (relativos,
+    com /) a extrair; None = tudo. Devolve a lista de itens extraídos."""
     global PS3_PKG_KEY
+    PS3_PKG_KEY = key
+    p = Pkg(pkg_path)
+    done = []
+    for it in p.items():
+        kind = it["flags"] & 0xFF
+        name = it["name"].replace("\\", "/").lstrip("/")
+        if ".." in name.split("/"):
+            raise SystemExit(f"nome inválido no PKG: {name}")
+        if only is not None and name not in only:
+            continue
+        dst = os.path.join(root, *name.split("/"))
+        if kind == 4:  # diretório
+            os.makedirs(dst, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst + ".tmp", "wb") as o:
+            pos, left = it["offset"], it["size"]
+            while left:
+                n = min(left, 8 << 20)
+                o.write(p.read(pos, n)); pos += n; left -= n
+        os.replace(dst + ".tmp", dst)
+        done.append({**it, "kind": kind})
+        log(f"   {it['size']:>10} {name}")
+    return p, done
+
+
+def main():
     ap = argparse.ArgumentParser(description="Extrai um PKG retail do PS3")
     ap.add_argument("pkg"); ap.add_argument("out")
     ap.add_argument("--rpcs3-crypto", required=True, help="pasta rpcs3/rpcs3/Crypto do código-fonte do RPCS3")
     a = ap.parse_args()
-    PS3_PKG_KEY = load_pkg_key(a.rpcs3_crypto)
-    pkg, out = a.pkg, a.out
-    p = Pkg(pkg)
-    print(f"content_id={p.content_id} items={p.item_cnt} data=0x{p.data_size:X}")
-    root = os.path.join(out, p.content_id.split("-")[1][:9])
-    manifest = []
-    for it in p.items():
-        kind = it["flags"] & 0xFF
-        dst = os.path.join(root, it["name"])
-        if kind == 4:  # diretório
-            os.makedirs(dst, exist_ok=True)
-        else:
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as o:
-                pos, left = it["offset"], it["size"]
-                while left:
-                    n = min(left, 8 << 20)
-                    o.write(p.read(pos, n)); pos += n; left -= n
-        manifest.append({**it, "kind": kind})
-        print(f"  [{kind:2d}] {it['size']:>10} {it['name']}")
+    key = load_pkg_key(a.rpcs3_crypto)
+    p = Pkg(a.pkg)
+    print(f"content_id={p.content_id} items={p.item_cnt} data=0x{p.data_size:X} (AES: {aes_compat.BACKEND})")
+    root = os.path.join(a.out, p.content_id.split("-")[1][:9])
+    p, manifest = extract(a.pkg, root, key)
     meta = {f"0x{k:X}": v.hex() for k, v in p.meta().items()}
-    with open(os.path.join(out, "pkg_manifest.json"), "w") as m:
+    with open(os.path.join(a.out, "pkg_manifest.json"), "w") as m:
         json.dump({"content_id": p.content_id, "meta": meta, "items": manifest}, m, indent=2)
 
 if __name__ == "__main__":

@@ -8,6 +8,9 @@ o Python embutido que o launcher baixou. Só usa a biblioteca padrão.
 
 O que ele faz, tudo dentro de <port>/toolchain (nada é instalado no sistema):
 
+  0. com --pkg: extrai o PKG europeu do usuário para game/PS3_GAME e decripta
+     o EBOOT.BIN com a licença dele (chaves dos key_vault do RPCS3, baixados
+     num commit fixo e conferidos por hash);
   1. baixa CMake, Ninja e a toolchain llvm-mingw (clang + mingw-w64);
   2. baixa o ps3recomp no commit fixado e aplica patches/ps3recomp-mingw.patch;
   3. baixa e compila SDL2, Vulkan-Headers e glslang/SPIRV-Tools (estáticos);
@@ -48,6 +51,19 @@ VK_HEADERS_TAG = "v1.4.366"
 GLSLANG_TAG = "vulkan-sdk-1.4.363.0"
 SPIRV_TOOLS_COMMIT = "ef96ed763b43b59b33b31b362f09a02b729fa1c9"     # known_good.json do glslang
 SPIRV_HEADERS_COMMIT = "496543121ce6419f23d6fa5d7194ba66c36212d2"
+
+CONTENT_ID = "EP0555-NPEB00076_00-BOMBERMANGAME001"
+
+# Chaves públicas do PS3 para abrir o PKG e o EBOOT do usuário (com a licença
+# dele): não ficam neste repositório. São lidas dos arquivos key_vault do
+# código-fonte do RPCS3, baixados num commit fixo e conferidos por hash.
+RPCS3_COMMIT = "0dec46b12e856756ba04271207a99a1de2208720"
+RPCS3_CRYPTO_FILES = {
+    "key_vault.h": "d5d0cede74c7900bb23ca8d60066194648ed4b976eaee60315c0bcbed7dc2aaf",
+    "key_vault.cpp": "a2947ff6b681258c198552ec6344e16685e2df649018206daa3f41a0a1aadbd7",
+}
+# Do PKG só saem estes itens (o resto, como troféus, não é usado pelo port).
+PKG_ITEMS = ("PARAM.SFO", "ICON0.PNG", "USRDIR/EBOOT.BIN", "USRDIR/media.zip", "USRDIR/Bman.bnk")
 
 # Hash dos segmentos PT_LOAD do EBOOT.elf europeu (NPEB00076, APP_VER 01.00):
 # o lift só é válido para exatamente este binário.
@@ -92,6 +108,9 @@ class Build:
         self.ninja = a.ninja or os.path.join(self.tc, "ninja", "ninja" + EXE)
         self.mingw = os.path.abspath(a.llvm_mingw) if a.llvm_mingw else os.path.join(self.tc, "llvm-mingw")
         self.python = sys.executable
+        self.pkg = os.path.abspath(a.pkg) if getattr(a, "pkg", None) else None
+        self.rap = os.path.abspath(a.rap) if getattr(a, "rap", None) else None
+        self.rpcs3_crypto_dir = os.path.abspath(a.rpcs3_crypto) if getattr(a, "rpcs3_crypto", None) else None
         self.log = open(os.path.join(self.tc, "build.log"), "a", encoding="utf-8")
         os.makedirs(self.state, exist_ok=True)
         os.makedirs(self.dl, exist_ok=True)
@@ -152,6 +171,34 @@ class Build:
 
     def py(self, script, *args):
         self.run([self.python, script, *args])
+
+    def download(self, url, path, sha256=None):
+        """Baixa url para path (se ainda não estiver lá), conferindo o SHA-256."""
+        if os.path.exists(path):
+            return path
+        tmp = path + ".part"
+        req = urllib.request.Request(url, headers={"User-Agent": "bomberman-ultra-pc"})
+        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+        if sha256:
+            h = hashlib.sha256(open(tmp, "rb").read()).hexdigest()
+            if h != sha256:
+                os.remove(tmp)
+                raise SystemExit(f"O download de {os.path.basename(path)} veio diferente do esperado (SHA-256).")
+        os.replace(tmp, path)
+        return path
+
+    def rpcs3_crypto(self):
+        if self.rpcs3_crypto_dir:
+            return self.rpcs3_crypto_dir
+        d = os.path.join(self.tc, "src", "rpcs3-crypto")
+        os.makedirs(d, exist_ok=True)
+        for name, sha in RPCS3_CRYPTO_FILES.items():
+            url = f"https://raw.githubusercontent.com/RPCS3/rpcs3/{RPCS3_COMMIT}/rpcs3/Crypto/{name}"
+            if not os.path.exists(os.path.join(d, name)):
+                self.say(f"   baixando {name} (RPCS3 {RPCS3_COMMIT[:7]})")
+            self.download(url, os.path.join(d, name), sha)
+        return d
 
     def fetch(self, name):
         """Baixa (com cache) e extrai DOWNLOADS[name]; devolve a pasta."""
@@ -234,13 +281,52 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
             self.run([self.cmake, "--install", bdir])
 
     # ---------------------------------------------------------------- etapas
+    def step_import_pkg(self):
+        """PKG + licença do usuário -> game/PS3_GAME (sem RPCS3)."""
+        if not self.pkg:
+            return
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import aes_compat
+        from extract_pkg import Pkg, extract, load_pkg_key
+        from unself_npdrm import load_keys, unself
+        self.say("[0/6] Convertendo o PKG nos arquivos do jogo")
+        try:
+            cid = Pkg(self.pkg).content_id
+        except (AssertionError, OSError, struct.error, UnicodeDecodeError):
+            raise SystemExit(f"{self.pkg} não é um PKG de PS3 válido.")
+        if cid != CONTENT_ID:
+            raise SystemExit(f"Esse PKG é {cid}; o port só funciona com o europeu, {CONTENT_ID}.")
+        rap = self.rap or os.path.join(self.root, "game", "licenses", CONTENT_ID + ".rap")
+        if not os.path.exists(rap) or os.path.getsize(rap) != 16:
+            raise SystemExit(f"Falta a licença {CONTENT_ID}.rap (use \"Localizar licença\" no launcher).")
+        crypto = self.rpcs3_crypto()
+        g = os.path.join(self.root, "game", "PS3_GAME")
+        self.say(f"   AES: {aes_compat.BACKEND}")
+        extract(self.pkg, g, load_pkg_key(crypto), only=set(PKG_ITEMS), log=self.say)
+        miss = [i for i in PKG_ITEMS if i != "ICON0.PNG" and not os.path.exists(os.path.join(g, *i.split("/")))]
+        if miss:
+            raise SystemExit("O PKG não tem: " + ", ".join(miss))
+        self.say("   decriptando USRDIR/EBOOT.BIN com a sua licença")
+        K, SK = load_keys(crypto)
+        elf = unself(open(os.path.join(g, "USRDIR", "EBOOT.BIN"), "rb").read(), open(rap, "rb").read(16),
+                     K, SK, log=lambda m: None)
+        out = os.path.join(g, "USRDIR", "EBOOT.elf")
+        open(out + ".tmp", "wb").write(elf)
+        if eboot_segments_sha256(out + ".tmp") != EBOOT_SEGMENTS_SHA256:
+            os.remove(out + ".tmp")
+            raise SystemExit("O EBOOT decriptado não confere com a versão 01.00 europeia.")
+        os.replace(out + ".tmp", out)
+        self.say("   EBOOT.elf conferido (Bomberman ULTRA europeu 01.00)")
+
     def check_game(self):
         g = os.path.join(self.root, "game", "PS3_GAME")
         need = [os.path.join(g, "USRDIR", f) for f in ("EBOOT.elf", "media.zip", "Bman.bnk")] + [os.path.join(g, "PARAM.SFO")]
         miss = [n for n in need if not os.path.exists(n)]
         if miss:
             raise SystemExit("Faltam arquivos do jogo:\n  " + "\n  ".join(miss) +
-                             "\nUse \"Preparar jogo\" no launcher para apontar a pasta do RPCS3.")
+                             "\nUse \"Preparar jogo\" no launcher e selecione o PKG do jogo.")
         if eboot_segments_sha256(os.path.join(g, "USRDIR", "EBOOT.elf")) != EBOOT_SEGMENTS_SHA256:
             raise SystemExit("O EBOOT.elf não é o do Bomberman ULTRA europeu (NPEB00076, 01.00) decriptado.")
 
@@ -454,6 +540,9 @@ def main():
     ap.add_argument("--deps-prefix")
     ap.add_argument("--src", action="append", metavar="NOME=PASTA")
     ap.add_argument("--pause", action="store_true", help="espera Enter no fim (janela aberta pelo launcher)")
+    ap.add_argument("--pkg", help="PKG europeu do usuário: extrai e decripta para game/PS3_GAME antes do build")
+    ap.add_argument("--rap", help="licença .rap (padrão: game/licenses/<content id>.rap)")
+    ap.add_argument("--rpcs3-crypto", help="pasta rpcs3/Crypto local, em vez de baixar os key_vault")
     a = ap.parse_args()
     try:
         build(a)
@@ -488,6 +577,7 @@ def build(a):
         shutil.rmtree(b.state, ignore_errors=True); os.makedirs(b.state)
     t0 = time.time()
     b.say("=== Bomberman ULTRA: preparando o jogo neste PC ===")
+    b.step_import_pkg()
     b.check_game()
     b.step_tools()
     b.step_ps3recomp()

@@ -35,7 +35,7 @@ O arquivo `.rap` é a licença da sua compra na PSN; ele é obtido do seu própr
 
 ## Como funciona
 
-1. O `EBOOT.BIN` do seu PKG é decriptado com a sua licença (pelo RPCS3).
+1. O PKG é extraído e o `EBOOT.BIN` dele é decriptado com a sua licença, no seu PC.
 2. O ps3recomp converte as 6.249 funções PPU em C++ e os três programas SPU (áudio MultiStream e dois jobs de renderização) em C.
 3. Tudo é compilado com o runtime HLE (`cellGcm`, `cellSpurs`, `cellPad`, sistema de arquivos, saves…) e com um backend Vulkan que executa o RSX: comandos do FIFO, shaders do jogo traduzidos para SPIR-V e texturas DXT.
 4. O resultado é um `BombermanUltra.exe` que lê `media.zip` e `Bman.bnk` direto da sua pasta do jogo.
@@ -70,31 +70,35 @@ Se você tem NVIDIA, um relato (funcionou ou não, com o `logs\bomberman.log`) a
 
 ### O que você precisa
 
-- O **seu** Bomberman ULTRA europeu (`NPEB00076`): o PKG e a licença `EP0555-NPEB00076_00-BOMBERMANGAME001.rap`.
-- O [RPCS3](https://rpcs3.net), só para instalar o PKG e decriptar o EBOOT (o port não usa o RPCS3 para rodar).
+- O **seu** Bomberman ULTRA europeu (`NPEB00076`): o arquivo `.pkg` e a licença `EP0555-NPEB00076_00-BOMBERMANGAME001.rap`.
 - Windows 10/11 64 bits, GPU com Vulkan, cerca de **6 GB livres** e internet na primeira preparação (ela baixa ~350 MB de ferramentas).
+- O RPCS3 **não** é necessário (mas o jogo já instalado nele também serve).
 
 ### Passos
 
-1. **Baixe** o `BombermanUltra-PC-<versão>.zip` em [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) e extraia num caminho curto, por exemplo `C:\Jogos\BombermanUltra`.
-2. **No RPCS3**: *File → Install Packages/Raps/Edats* com o `.rap` e o PKG. Depois *Utilities → Decrypt PS3 Binaries* e escolha `dev_hdd0\game\NPEB00076\USRDIR\EBOOT.BIN`: o RPCS3 grava o `EBOOT.elf` ao lado.
-3. **Abra o `BombermanUltraLauncher.exe`** e clique em **Preparar jogo**. Se o Windows avisar que o app não é reconhecido, use *Mais informações → Executar assim mesmo* (o launcher não é assinado).
-   - Aponte a pasta do RPCS3 (ou `dev_hdd0\game\NPEB00076`). O launcher confere que é a versão europeia e que o `EBOOT.elf` é o decriptado dela, e copia `PARAM.SFO`, `ICON0.PNG`, `media.zip`, `Bman.bnk` e `EBOOT.elf` para `game\PS3_GAME`.
-   - Aponte a licença `.rap`, se ele não achar sozinho.
-   - Confirme. Uma janela de console baixa as ferramentas para `toolchain\` e compila o jogo: **10 a 40 minutos** na primeira vez, conforme o processador.
-4. Clique em **JOGAR**.
+1. **Baixe** o `BombermanUltra-PC-<versão>.zip` em [Releases](https://github.com/Vinistarting/bomberman-ultra-pc/releases) e extraia num caminho curto, por exemplo `C:\Jogos\BombermanUltra`. Deixe o `.pkg` e o `.rap` na pasta do port, em Downloads, na Área de Trabalho ou em Documentos, que o launcher acha sozinho (ou aponte onde estão).
+2. **Abra o `BombermanUltraLauncher.exe`** e clique em **Preparar jogo**. Se o Windows avisar que o app não é reconhecido, use *Mais informações → Executar assim mesmo* (o launcher não é assinado).
+3. Escolha **Selecionar o PKG do jogo**. O launcher confere pelo cabeçalho que é o PKG europeu (o nome do arquivo não importa) e pede a licença `.rap` se não a encontrar.
+4. Confirme. Uma janela de console:
+   - extrai do PKG só o que o port usa (`PARAM.SFO`, `ICON0.PNG`, `EBOOT.BIN`, `media.zip`, `Bman.bnk`) para `game\PS3_GAME`;
+   - decripta o `EBOOT.BIN` com a sua licença e confere o resultado pelo hash da versão europeia 01.00;
+   - baixa as ferramentas para `toolchain\` e compila o jogo: **10 a 40 minutos** na primeira vez, conforme o processador.
+5. Clique em **JOGAR**.
+
+Com o jogo instalado no RPCS3, a outra opção do **Preparar jogo** (*Usar o jogo instalado no RPCS3*) copia os arquivos de `dev_hdd0\game\NPEB00076`; nesse caso o `EBOOT.elf` precisa ter sido gerado antes em *Utilities → Decrypt PS3 Binaries*.
 
 O que o **Preparar jogo** baixa (tudo fica em `toolchain\`, nada é instalado no Windows):
 
 | Ferramenta | De onde | Para quê |
 |---|---|---|
 | Python 3.12 embutido | python.org | roda o `tools\build_windows.py` e o ps3recomp |
+| `key_vault.h` e `key_vault.cpp` do RPCS3 (commit fixo) | GitHub (RPCS3) | chaves públicas do PS3 para abrir o PKG e o EBOOT com a sua licença |
 | CMake 3.31, Ninja 1.12 | GitHub (Kitware, ninja-build) | build |
 | llvm-mingw 20261020 | GitHub (mstorsjo) | compilador clang para Windows |
 | ps3recomp (commit fixo) + `patches\ps3recomp-mingw.patch` | GitHub (sp00nznet) | conversão PPU/SPU e runtime |
 | SDL2, Vulkan-Headers, glslang, SPIRV-Tools | GitHub (libsdl-org, KhronosGroup) | janela, controles, shaders |
 
-Os binários prontos (Python, CMake, Ninja, llvm-mingw) são conferidos por hash. Se algo falhar, clicar em **Preparar jogo** de novo continua de onde parou; o log completo fica em `toolchain\build.log`.
+Os binários prontos e os arquivos de chaves são conferidos por hash. Nenhuma chave fica neste repositório, e sem a licença `.rap` do jogo não há como decriptar o EBOOT. Se algo falhar, clicar em **Preparar jogo** de novo continua de onde parou; o log completo fica em `toolchain\build.log`.
 
 ### Alternativa: compilar no Linux ou WSL
 
@@ -160,7 +164,7 @@ Controles seguem o layout do PlayStation pela **posição** dos botões (o de ba
 | Áudio | ligado, mudo ou desativado |
 | Limitar a 60 FPS | ligado = velocidade original; desligado = o jogo acelera se o PC passar de 60 |
 | Contador de FPS | no canto superior direito |
-| Preparar jogo | importa o jogo da pasta do RPCS3 e compila o port neste PC |
+| Preparar jogo | extrai o seu PKG (ou importa do RPCS3) e compila o port neste PC |
 | Localizar licença | aponta o `.rap` |
 | Adicionar à Steam | cria o atalho de jogo não-Steam (`--jogar`: abre direto no jogo) |
 
